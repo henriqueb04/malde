@@ -1,10 +1,5 @@
 use crate::lib::signals::{ALUSignals, ControlSignals};
 
-struct Sequencer {
-    microinstructions: Box<[u32]>,
-    len: usize,
-}
-
 #[inline]
 fn slice_bits(bits: &u32, start: usize, end: usize) -> u8 {
     let len = start - end;
@@ -19,8 +14,13 @@ fn get_bit(bits: &u32, i: u8) -> bool {
     ((bits >> (32 - i)) & 1) == 1
 }
 
+pub struct Sequencer {
+    microinstructions: Box<[u32]>,
+    len: usize,
+}
+
 impl Sequencer {
-    fn new(microinstructions: Box<[u32]>) -> Self {
+    pub fn new(microinstructions: Box<[u32]>) -> Self {
         let len = microinstructions.len();
         Sequencer {
             microinstructions,
@@ -54,7 +54,7 @@ pub struct ControlUnit {
 }
 
 impl ControlUnit {
-    fn new(sequencer: Sequencer) -> Self {
+    pub fn new(sequencer: Sequencer) -> Self {
         ControlUnit {
             signals: ControlSignals::default(),
             sequencer,
@@ -62,11 +62,11 @@ impl ControlUnit {
         }
     }
 
-    fn load_signals(&mut self) {
+    pub fn load_signals(&mut self) {
         self.sequencer.load_instruction(&self.mpc, &mut self.signals);
     }
 
-    fn advance(&mut self, alu_sigs: &ALUSignals) -> usize {
+    pub fn advance(&mut self, alu_sigs: &ALUSignals) -> usize {
         self.mpc = match self.signals.cond {
             1 => if alu_sigs.n { self.signals.addr as usize } else { self.mpc + 1 },
             2 => if alu_sigs.z { self.signals.addr as usize } else { self.mpc + 1 },

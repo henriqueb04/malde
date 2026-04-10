@@ -36,9 +36,9 @@ pub struct Datapath {
     mar: u16,
     mbr: u16,
     registors: [u16; 16],
-    alu_sigs: ALUSignals,
     alu_out: u16,
     alu_in_a: u16,
+    pub alu_sigs: ALUSignals,
 }
 
 impl Datapath {
@@ -141,7 +141,7 @@ impl Datapath {
         self.mbr = self.bus_c;
     }
 
-    fn clock(&mut self, signals: &ControlSignals) {
+    pub fn clock(&mut self, signals: &ControlSignals) {
         self.load_to_bus_a(signals.a);
         self.load_to_bus_b(signals.b);
         if signals.mar {
