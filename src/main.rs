@@ -1,4 +1,4 @@
-mod lib;
+mod cpu;
 
 use crate;
 

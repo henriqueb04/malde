@@ -1,4 +1,4 @@
-use crate::lib::signals::{ALUSignals, ControlSignals};
+use crate::cpu::signals::{ALUSignals, ControlSignals};
 
 fn get_registor_index(registor_name: &str) -> Option<u8> {
     match registor_name {
@@ -33,11 +33,11 @@ pub struct Datapath {
     bus_a: u16,
     bus_b: u16,
     bus_c: u16,
-    mar: u16,
-    mbr: u16,
     registors: [u16; 16],
     alu_out: u16,
     alu_in_a: u16,
+    pub mar: u16,
+    pub mbr: u16,
     pub alu_sigs: ALUSignals,
 }
 
@@ -147,12 +147,11 @@ impl Datapath {
         if signals.mar {
             self.load_to_mar();
         }
-        self.alu_in_a = if signals.amux { 1 } else { self.bus_a };
+        self.alu_in_a = if signals.amux { self.mbr } else { self.bus_a };
         self.alu_operate(signals.alu);
         self.shift(signals.sh);
         if signals.enc {
             self.load_to_registor(signals.c);
         }
-        // TODO: Request read and write from memory
     }
 }

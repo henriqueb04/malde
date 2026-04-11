@@ -1,4 +1,4 @@
-use crate::lib::signals::{ALUSignals, ControlSignals};
+use crate::cpu::signals::{ALUSignals, ControlSignals};
 
 #[inline]
 fn slice_bits(bits: &u32, start: usize, end: usize) -> u8 {

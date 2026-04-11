@@ -1,27 +1,35 @@
 mod control;
 mod datapath;
+mod memory;
 mod signals;
 
 use control::{ControlUnit, Sequencer};
 use datapath::Datapath;
+use memory::Memory;
 
 pub struct Cpu {
     datapath: Datapath,
     control_unit: ControlUnit,
+    memory: Memory,
 }
 
 impl Cpu {
     fn new(microinstructions: Box<[u32]>) -> Self {
         Cpu {
-            datapath: Datapath::new(),
+            memory: Memory::new(),
             control_unit: ControlUnit::new(Sequencer::new(microinstructions)),
+            datapath: Datapath::new(),
         }
     }
 
     fn advance_microinstruction(&mut self) -> usize {
-        // TODO: read and write to memory
         self.control_unit.load_signals();
         self.datapath.clock(&self.control_unit.signals);
+        self.memory.clock(
+            &self.control_unit.signals,
+            &self.datapath.mar,
+            &mut self.datapath.mbr,
+        );
         self.control_unit.advance(&self.datapath.alu_sigs)
     }
 
