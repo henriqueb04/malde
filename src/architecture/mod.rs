@@ -1,7 +1,7 @@
-mod control;
-mod datapath;
-mod memory;
-mod signals;
+pub mod control;
+pub mod datapath;
+pub mod memory;
+pub mod signals;
 
 use control::{ControlUnit, Sequencer};
 use datapath::Datapath;

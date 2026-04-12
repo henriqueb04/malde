@@ -1,4 +1,4 @@
-use crate::cpu::signals::ControlSignals;
+use crate::architecture::signals::ControlSignals;
 
 const MEMORY_SIZE: u16 = (1 << 12) - 1;
 pub struct Memory {

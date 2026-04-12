@@ -1,4 +1,4 @@
-use crate::cpu::signals::{ALUSignals, ControlSignals};
+use crate::architecture::signals::{ALUSignals, ControlSignals};
 
 #[inline]
 fn slice_bits(bits: &u32, start: usize, end: usize) -> u8 {
@@ -30,20 +30,7 @@ impl Sequencer {
 
     #[rustfmt::skip]
     fn load_instruction(&self, mpc: &usize, mir: &mut ControlSignals) {
-        let microinstruction = &self.microinstructions[*mpc];
-        mir.amux = get_bit(microinstruction, 0);
-        mir.cond = slice_bits(microinstruction, 1, 3);
-        mir.alu  = slice_bits(microinstruction, 3, 5);
-        mir.sh   = slice_bits(microinstruction, 5, 7);
-        mir.mbr  = get_bit(microinstruction, 7);
-        mir.mar  = get_bit(microinstruction, 8);
-        mir.rd   = get_bit(microinstruction, 9);
-        mir.wr   = get_bit(microinstruction, 10);
-        mir.enc  = get_bit(microinstruction, 11);
-        mir.c    = slice_bits(microinstruction, 12, 16);
-        mir.b    = slice_bits(microinstruction, 16, 20);
-        mir.a    = slice_bits(microinstruction, 20, 24);
-        mir.addr = slice_bits(microinstruction, 24, 32);
+        *mir = ControlSignals::from(&self.microinstructions[*mpc]);
     }
 }
 

@@ -1,12 +1,6 @@
-mod cpu;
-
-use crate;
+mod architecture;
+mod parsers;
 
 fn main() {
     println!("Hello, world!");
 }
-
-// #[cfg(test)]
-// mod tests {
-    
-// }

@@ -1,6 +1,6 @@
-use crate::cpu::signals::{ALUSignals, ControlSignals};
+use crate::architecture::signals::{ALUSignals, ControlSignals};
 
-fn get_registor_index(registor_name: &str) -> Option<u8> {
+pub fn get_registor_index(registor_name: &str) -> Option<u8> {
     match registor_name {
         "pc" => Some(0),
         "ac" => Some(1),
@@ -9,7 +9,7 @@ fn get_registor_index(registor_name: &str) -> Option<u8> {
         "tir" => Some(4),
         "0" => Some(5),
         "1" => Some(6),
-        "-1" => Some(7),
+        "(-1)" => Some(7),
         "amask" => Some(8),
         "smask" => Some(9),
         "a" => Some(10),
@@ -22,10 +22,10 @@ fn get_registor_index(registor_name: &str) -> Option<u8> {
     }
 }
 
-const REGISTOR_NAMES: [&'static str; 16] = [
+pub const REGISTOR_NAMES: [&'static str; 16] = [
     "pc", "ac", "sp", "ir", "tir", "0", "1", "-1", "amask", "smask", "a", "b", "c", "d", "e", "f",
 ];
-fn get_registor_name(registor_index: u8) -> &'static str {
+pub fn get_registor_name(registor_index: u8) -> &'static str {
     REGISTOR_NAMES[registor_index as usize]
 }
 
