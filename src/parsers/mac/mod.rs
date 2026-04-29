@@ -1,44 +1,9 @@
 mod regex;
+mod errors;
 
 use crate::parsers::mac::regex::*;
-use core::fmt;
+use crate::parsers::mac::errors::*;
 use std::collections::HashMap;
-
-#[derive(Debug)]
-pub enum ParsingErrorType<'a> {
-    InvalidLine,
-    InvalidNumber(&'a str),
-    DuplicatedIdentifier(&'a str),
-    UndefinedIdentifier(&'a str),
-    InstructionTooBig(String, String, usize),
-    NumberTooBig(isize, usize),
-    NumberTooSmall(isize, usize),
-    InvalidInstruction(String),
-    UnsupportedDirective(&'a str),
-}
-
-impl fmt::Display for ParsingErrorType<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::InvalidLine => write!(f, "Linha inválida"),
-            Self::InvalidNumber(num) => write!(f, "Número inválido \"{}\"", num),
-            Self::DuplicatedIdentifier(iden) => write!(f, "Identificador \"{}\" declarado mais de uma vez", iden),
-            Self::UndefinedIdentifier(iden) => write!(f, "Identificador \"{}\" não encontrador", iden),
-            Self::InstructionTooBig(ins, bin, len) => write!(f, "Instrução \"{}\" ({}) excede o tamanho de 16 bits, tem tamanho {}", ins, bin, len),
-            Self::NumberTooBig(n, len) => write!(f, "Número {} grande demais para tamanho {}", n, len),
-            Self::NumberTooSmall(n, len) => write!(f, "Número {} pequeno demais para tamanho {}", n, len),
-            Self::InvalidInstruction(ins) => write!(f, "Instrução inválida \"{}\"", ins),
-            Self::UnsupportedDirective(dir) => write!(f, "Diretiva \"{}\" não suportada", dir),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct ParsingError<'a> {
-    lineno: usize,
-    content: &'a str,
-    error_type: ParsingErrorType<'a>,
-}
 
 #[derive(Debug)]
 pub struct ASMParser<'a> {
@@ -120,34 +85,36 @@ impl<'a> ASMParser<'a> {
                     let Some(def_type) = cap.name("type").map(|v| v.as_str()) else {
                         return Err((lineno, ParsingErrorType::InvalidLine));
                     };
-                    if def_type != ".word" {
-                        return Err((lineno, ParsingErrorType::UnsupportedDirective(def_type)));
-                    }
-                    let Some(value1) = cap.name("value1").map(|v| v.as_str()) else {
+                    let Some(content) = cap.name("content").map(|v| v.as_str()) else {
                         return Err((lineno, ParsingErrorType::InvalidLine));
                     };
                     let initial_len = data.len();
-                    if let Some(valuesn) = cap.name("valuesn").map(|v| v.as_str()) {
-                        let mut m: Vec<u16> = Vec::new();
-                        if let Ok(n) = value1.parse::<i16>() {
-                            m.push(n as u16);
-                        } else {
-                            return Err((lineno, ParsingErrorType::InvalidNumber(value1)));
-                        }
-                        for valuen in &COMMA_R.split(valuesn).collect::<Vec<&str>>()[1..] {
-                            if let Ok(n) = valuen.parse::<i16>() {
-                                m.push(n as u16);
-                            } else {
-                                return Err((lineno, ParsingErrorType::InvalidNumber(valuen)));
+                    match def_type {
+                        ".word" | ".byte" => {
+                            let m: Vec<u16> = match read_ints(content) {
+                                Ok(m) => m,
+                                Err(err) => return Err((lineno, err)),
+                            };
+                            if def_type == ".byte" {
+                                for &n in m.iter() {
+                                    if n > u8::MAX as u16 {
+                                        return Err((lineno, ParsingErrorType::NumberTooBig(n as isize, 8)));
+                                    }
+                                }
                             }
-                        }
-                        data.extend(m);
-                    } else {
-                        if let Ok(n) = value1.parse::<i16>() {
-                            data.push(n as u16);
-                        } else {
-                            return Err((lineno, ParsingErrorType::InvalidNumber(value1)));
-                        }
+                            data.extend(m);
+                        },
+                        ".ascii" | ".asciz" | ".asciiz" => {
+                            let mut m: Vec<u16> = match read_str(content) {
+                                Ok(m) => m,
+                                Err(err) => return Err((lineno, err)),
+                            };
+                            if def_type != ".ascii" {
+                                m.push(0);
+                            }
+                            data.extend(m);
+                        },
+                        _ => return Err((lineno, ParsingErrorType::UnsupportedDirective(def_type))),
                     }
                     if self.data_symbols.contains_key(name)
                         || self.instructions_symbols.contains_key(name)
@@ -200,29 +167,23 @@ impl<'a> ASMParser<'a> {
                     let num_len = 16 - cur_len;
                     if n >= 0 {
                         if n > ((1 << (num_len - 1)) - 1) {
-                            return Err((
-                                *lineno,
-                                ParsingErrorType::NumberTooBig(n, num_len),
-                            ));
+                            return Err((*lineno, ParsingErrorType::NumberTooBig(n, num_len)));
                         }
                         let zeros = "0".repeat(num_len - bin.len());
                         s.push_str(zeros.as_str());
                         s.push_str(bin.as_str());
                     } else {
                         if num_len < 2 || n < ((1 << (num_len - 2)) ^ -1) {
-                            return Err((
-                                *lineno,
-                                ParsingErrorType::NumberTooSmall(n, num_len),
-                            ));
+                            return Err((*lineno, ParsingErrorType::NumberTooSmall(n, num_len)));
                         }
                         let bin_len = bin.len();
                         s.push_str(&bin[bin_len - num_len..]);
                     }
-                } else if let Some(bin) = self.keyword_table.get(symb).map(|v| String::from(*v))
-                    .or(self
-                        .data_symbols
-                        .get(symb)
-                        .map(|v| format!("{:b}", v)))
+                } else if let Some(bin) = self
+                    .keyword_table
+                    .get(symb)
+                    .map(|v| String::from(*v))
+                    .or(self.data_symbols.get(symb).map(|v| format!("{:b}", v)))
                     .or(self
                         .instructions_symbols
                         .get(symb)
@@ -266,21 +227,24 @@ mod tests {
     #[test]
     fn test_mem() {
         let mut parser = ASMParser::new();
-        let mem = parser.parse_text("aflkjaflkdsjf
+        let mem = parser.parse_text(
+            "aflkjaflkdsjf
 
 .data
     TESTE1: .word 5
     TESTE2: .word 1, 2, 3, 4
     TESTE3: .word 1, 2, 3, 4,
     TESTE4: .word 5,
+
 .text
 MAIN:
     LODD TESTE1;
     SUBD TESTE2;
+
 PRINT: LOCO TESTE4
     LOCO 1
-    LOCO -1");
-        let v = mem.unwrap();
+    LOCO -1",
+        ).unwrap();
         let expected = [
             0b0000000000000110,
             0b0011000000000111,
@@ -299,10 +263,48 @@ PRINT: LOCO TESTE4
             0b0000000000000100,
             0b0000000000000101,
         ];
-        for (i, s) in v.iter().enumerate() {
+        for (i, s) in mem.iter().enumerate() {
             println!("Got:      {:016b}", s);
             println!("Expected: {:016b}", expected[i]);
         }
-        assert_eq!(v, expected);
+        assert_eq!(mem, expected);
+
+        let mut parser = ASMParser::new();
+        let mem = parser.parse_text(".data
+TESTE1: .word 1 // Comentário
+TESTE2: .word 2, # Comentário
+TESTE3: .word 3, 4
+TESTE4: .word 5, 6,
+TESTE5: .word 7, 8, // Comentário
+TESTE6: .byte 9
+TESTE7: .ascii \"abc\"
+TESTE8: .asciz \"abc\" // Comentário
+").unwrap();
+        let expected = [
+            0b0000000000000000,
+            0b0000000000000001,
+            0b0000000000000010,
+            0b0000000000000011,
+            0b0000000000000100,
+            0b0000000000000101,
+            0b0000000000000110,
+            0b0000000000000111,
+            0b0000000000001000,
+            0b0000000000001001,
+            97,
+            98,
+            99,
+            97,
+            98,
+            99,
+            0,
+        ];
+        for (i, &s) in mem.iter().enumerate() {
+            if s != expected[i] { println!("---"); }
+            println!("Got:      {:016b}", s);
+            println!("Expected: {:016b}", expected[i]);
+            if s != expected[i] { println!("---"); }
+        }
+        assert_eq!(mem, expected);
     }
 }

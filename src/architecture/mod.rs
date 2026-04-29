@@ -59,7 +59,7 @@ impl Cpu {
         self.initial_memory = Some(data);
     }
     pub fn reset(&mut self) {
-        self.memory.clear();
+        self.zero_out_memory();
         self.datapath.reset();
         if let Some(mem) = self.initial_memory.take() {
             self.load_into_memory(&mem);
