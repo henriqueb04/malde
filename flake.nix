@@ -21,27 +21,63 @@
         pkgs = import nixpkgs {
           inherit system overlays;
         };
+
+        rustToolchain = pkgs.rust-bin.stable.latest.default;
+        rustPlatform = pkgs.makeRustPlatform {
+          cargo = rustToolchain;
+          rustc = rustToolchain;
+        };
+
+        runtimeLibs = with pkgs; [
+          libGL
+          libxkbcommon
+          wayland
+          # libx11 libxcursor libxrandr libxi
+        ];
+        buildInputs = runtimeLibs ++ [ pkgs.zenity ];
       in
       {
-        devShells.default =
-          with pkgs; mkShell {
-            buildInputs = [
-              gdb
-              lldb
-              (rust-bin.stable.latest.default.override {
-                extensions = [ "rust-analyzer" "rust-src" "rustfmt" ];
-              })
-              libGL libxkbcommon wayland
-              # libx11 libxcursor libxrandr libxi
-              zenity
-            ];
-            # NIXOS_OZONE_WL = "1";
-            shellHook = ''
-            export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath (with pkgs; [
-              libGL libxkbcommon wayland
-            ])}
-            '';
+        packages.default = rustPlatform.buildRustPackage {
+          pname = "malde";
+          version = "0.1.0";
+
+          src = ./.;
+
+          cargoLock = {
+            lockFile = ./Cargo.lock;
           };
+
+          nativeBuildInputs = [
+            pkgs.pkg-config
+            pkgs.makeWrapper
+          ];
+
+          inherit buildInputs;
+
+          postInstall = ''
+            wrapProgram $out/bin/malde \
+              --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath runtimeLibs}
+          '';
+        };
+
+        devShells.default = pkgs.mkShell {
+          nativeBuildInputs = [
+            pkgs.gdb
+            (rustToolchain.override {
+              extensions = [
+                "rust-analyzer"
+                "rust-src"
+                "rustfmt"
+              ];
+            })
+          ];
+
+          inherit buildInputs;
+
+          shellHook = ''
+            export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath runtimeLibs}
+          '';
+        };
       }
     );
 }

@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-csv = "1.4.0"
 eframe = "0.34.1"
 egui_extras = "0.34.1"
 regex = "1.12.3"
