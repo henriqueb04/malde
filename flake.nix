@@ -1,5 +1,5 @@
 {
-  description = "RPG dice macro language.";
+  description = "MAL interpreter.";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -32,7 +32,7 @@
                 extensions = [ "rust-analyzer" "rust-src" "rustfmt" ];
               })
               libGL libxkbcommon wayland
-              libx11 libxcursor libxrandr libxi
+              # libx11 libxcursor libxrandr libxi
               zenity
             ];
             # NIXOS_OZONE_WL = "1";
