@@ -22,6 +22,24 @@ pub fn get_registor_index(registor_name: &str) -> Option<u8> {
     }
 }
 
+pub const DEFAULT_REGISTOR_VALUES: [u16; 16] = [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,                      // 0
+    1,                      // 1
+    ((1 << 16) - 1) as u16, // -1
+    ((1 << 12) - 1) as u16, // amask
+    ((1 << 8) - 1) as u16,  // smask
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+];
 pub const REGISTOR_NAMES: [&'static str; 16] = [
     "pc", "ac", "sp", "ir", "tir", "0", "1", "-1", "amask", "smask", "a", "b", "c", "d", "e", "f",
 ];
@@ -49,24 +67,7 @@ impl Datapath {
             bus_c: 0,
             mar: 0,
             mbr: 0,
-            registors: [
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,                      // 0
-                1,                      // 1
-                ((1 << 16) - 1) as u16, // -1
-                ((1 << 12) - 1) as u16, // amask
-                ((1 << 8) - 1) as u16,  // smask
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-            ],
+            registors: DEFAULT_REGISTOR_VALUES,
             alu_in_a: 0,
             alu_out: 0,
             alu_sigs: ALUSignals { z: false, n: false },
@@ -147,11 +148,24 @@ impl Datapath {
         if signals.mar {
             self.load_to_mar();
         }
+        if signals.mbr {
+            self.load_to_mbr();
+        }
         self.alu_in_a = if signals.amux { self.mbr } else { self.bus_a };
         self.alu_operate(signals.alu);
         self.shift(signals.sh);
         if signals.enc {
             self.load_to_registor(signals.c);
         }
+    }
+
+    pub fn reset(&mut self) {
+        self.registors = DEFAULT_REGISTOR_VALUES;
+        self.mar = 0;
+        self.mbr = 0;
+    }
+
+    pub fn get_registors(&self) -> &[u16; 16] {
+        &self.registors
     }
 }

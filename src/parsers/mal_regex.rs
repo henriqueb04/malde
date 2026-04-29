@@ -1,38 +1,22 @@
-use crate::architecture::datapath::get_registor_index;
-use crate::parsers::lockable::ControlSignalsLockable;
+use crate::parsers::lockable::{ConflictType, ControlSignalsLockable};
+use crate::{architecture::datapath::get_registor_index, parsers::lockable::ValueAlreadySet};
 use regex::{Captures, Regex};
-use std::sync::LazyLock;
-
-// Macros para não ter que ficar lidando com um possível erro toda vez.
-// Se der erro, elas jogam pra cima e vai na fé
-macro_rules! set_int {
-    ($mir:expr, $name:expr, $val:expr) => {
-        if let Err(err) = $mir.set_int($name, $val) {
-            return Err(ParsingError::SignalAlreadyDefined(err.to_string()));
-        }
-    };
-}
-macro_rules! set_bool {
-    ($mir:expr, $name:expr, $val:expr) => {
-        if let Err(err) = $mir.set_bool($name, $val) {
-            return Err(ParsingError::SignalAlreadyDefined(err.to_string()));
-        }
-    };
-}
+use std::error::Error;
+use std::{fmt::Display, sync::LazyLock};
 
 pub fn parse_line<'a>(
     line: &'a str,
 ) -> Option<Result<(&'a str, ControlSignalsLockable<'a>), ParsingError<'a>>> {
     let mut mir = ControlSignalsLockable::new();
     let line_name_capture = LINE_NAME_R.captures(line)?;
-    let line_name = line_name_capture.get(1)?.as_str();
-    let line_content = &line[line_name_capture.get(0)?.end()..];
+    let line_name = line_name_capture.name("name")?.as_str();
+    let line_content = line_name_capture.name("content")?.as_str();
     for expr in line_content.split(';') {
         if expr.trim().is_empty() {
             continue;
         }
+        println!("{}", expr);
         if let Err(err) = parse_expr(expr, &mut mir) {
-            println!("{}", expr);
             return Some(Err(err));
         }
     }
@@ -56,52 +40,46 @@ fn parse_expr<'a, 'b>(
 ) -> Result<&'b ControlSignalsLockable<'a>, ParsingError<'a>> {
     // Procura rd ou wr
     if RD_R.captures(expr).is_some() {
-        set_bool!(mir, "rd", true);
+        mir.set_bool("rd", true)?;
         return Ok(mir);
     }
     if WR_R.captures(expr).is_some() {
-        set_bool!(mir, "wr", true);
+        mir.set_bool("wr", true)?;
         return Ok(mir);
     }
     // Procura por goto
     if let Some(goto) = IF_GOTO_R.captures(expr) {
-        if let Some(cond) = goto.name("cond") {
-            match cond.as_str() {
+        if let Some(cond) = goto.name("cond").map(|c| c.as_str()) {
+            match cond {
                 "n" => {
-                    if let Err(err) = mir.set_int("cond", 1) {
-                        return Err(ParsingError::SignalAlreadyDefined(err.to_string()));
-                    }
+                    mir.set_int("cond", 1)?;
                 }
                 "z" => {
-                    if let Err(err) = mir.set_int("cond", 2) {
-                        return Err(ParsingError::SignalAlreadyDefined(err.to_string()));
-                    }
+                    mir.set_int("cond", 2)?;
                 }
                 _ => {
-                    if let Err(err) = mir.set_int("cond", 3) {
-                        return Err(ParsingError::SignalAlreadyDefined(err.to_string()));
-                    }
+                    return Err(ParsingError::InvalidCondition(cond));
                 }
             }
         }
+        // Seta como "sempre desvie" (3) caso não tenha sido setada
+        let _ = mir.set_int("cond", 3);
         if let Some(addr) = goto.name("addr") {
-            if let Err(err) = mir.set_addr_symbol(addr.as_str()) {
-                return Err(ParsingError::SignalAlreadyDefined(err.to_string()));
-            }
+            mir.set_addr_symbol(addr.as_str())?;
         } else {
-            return Err(ParsingError::InvalidStatement);
+            return Err(ParsingError::InvalidExpression(expr));
         }
         return Ok(mir);
     }
     // Procura por expressões de atribuição (aaa := xxx)
     let Some(outter) = OUTTER_R.captures(expr) else {
-        return Err(ParsingError::InvalidStatement);
+        return Err(ParsingError::InvalidExpression(expr));
     };
     let Some(dest) = outter.name("dest") else {
-        return Err(ParsingError::InvalidStatement);
+        return Err(ParsingError::InvalidExpression(expr));
     };
     let Some(operation) = outter.name("operation") else {
-        return Err(ParsingError::InvalidStatement);
+        return Err(ParsingError::InvalidExpression(expr));
     };
     // Verificações
     let dest = dest.as_str();
@@ -111,14 +89,12 @@ fn parse_expr<'a, 'b>(
     let dest_is_mar = dest == "mar";
     // Ativar ENC se tentar atribuir a um registrador
     if dest_is_registor {
-        set_bool!(mir, "enc", true);
-        if let Err(err) = mir.set_int("c", dest_index.unwrap()) {
-            return Err(ParsingError::SignalAlreadyDefined(err.to_string()));
-        }
+        mir.set_bool("enc", true)?;
+        mir.set_int("c", dest_index.unwrap())?;
     }
     // Ativar MBR se o atributo para este
     if dest_is_mbr {
-        set_bool!(mir, "mbr", true);
+        mir.set_bool("mbr", true)?;
     }
     // Começo da operação
     let mut operation = operation.as_str();
@@ -134,19 +110,17 @@ fn parse_expr<'a, 'b>(
         }
         // Só pra garantir que o regex não falhou
         let Some(sh) = shifter.name("shift") else {
-            return Err(ParsingError::InvalidStatement);
+            return Err(ParsingError::InvalidExpression(expr));
         };
-        if let Err(err) = mir.set_int("sh", if sh.as_str() == "lshift" { 1 } else { 2 }) {
-            return Err(ParsingError::SignalAlreadyDefined(err.to_string()));
-        }
+        mir.set_int("sh", if sh.as_str() == "lshift" { 1 } else { 2 })?;
         let Some(shift_op) = shifter.name("operation") else {
-            return Err(ParsingError::InvalidStatement);
+            return Err(ParsingError::InvalidExpression(expr));
         };
         operation = shift_op.as_str();
     }
     // Depois de verificar o shifter
     let Some(op) = OPERATION_R.captures(operation) else {
-        return Err(ParsingError::InvalidStatement);
+        return Err(ParsingError::InvalidExpression(expr));
     };
     // É impossível realizar qualquer operação quando atribuindo valor ao MAR, portanto,
     // usamos a "operação" de tranparência
@@ -169,10 +143,10 @@ fn parse_expr<'a, 'b>(
                 {
                     mir.swap_a_b();
                 } else {
-                    return Err(ParsingError::SignalAlreadyDefined(err.to_string()));
+                    return Err(ParsingError::SignalAlreadyDefined(err));
                 }
             }
-            set_bool!(mir, "mar", true);
+            mir.set_bool("mar", true)?;
         } else {
             return Err(ParsingError::ImpossiblePath(
                 dest,
@@ -188,7 +162,7 @@ fn parse_expr<'a, 'b>(
         // B
         check_reg_b(mir, &op, "sB")?;
         // ALU
-        set_int!(mir, "alu", 0);
+        mir.set_int("alu", 0)?;
     } else if op.name("band").is_some() {
         // Bitwise And
         // A
@@ -196,20 +170,20 @@ fn parse_expr<'a, 'b>(
         // B
         check_reg_b(mir, &op, "aB")?;
         // ALU
-        set_int!(mir, "alu", 1);
+        mir.set_int("alu", 1)?;
     } else if op.name("inv").is_some() {
         // Not
         // A
         check_reg_a(mir, &op, "iA")?;
         // ALU
-        set_int!(mir, "alu", 3);
+        mir.set_int("alu", 3)?;
     } else if transparency.is_some() {
         // Transparência
         // A
         check_reg_a(mir, &op, "transparency")?;
-        set_int!(mir, "alu", 2);
+        mir.set_int("alu", 2)?;
     } else {
-        return Err(ParsingError::InvalidStatement);
+        return Err(ParsingError::InvalidExpression(expr));
     }
     Ok(mir)
 }
@@ -218,13 +192,15 @@ fn check_reg_a<'a, 'b>(
     mir: &'b mut ControlSignalsLockable<'a>,
     op: &'b Captures<'a>,
     name: &'a str,
-) -> Result<(), ParsingError<'a>> {
+) -> Result<(), ParsingError<'a>>
+    where 'a: 'b
+{
     let Some(name) = op.name(name) else {
-        return Err(ParsingError::InvalidStatement);
+        return Err(ParsingError::InvalidExpression(op.get(0).map_or("", |m| m.as_str())));
     };
     let name = name.as_str();
     if name == "mbr" {
-        set_bool!(mir, "amux", true);
+        mir.set_bool("amux", true)?;
         return Ok(());
     } else if name == "mar" {
         return Err(ParsingError::IlegalRegistor(
@@ -235,8 +211,8 @@ fn check_reg_a<'a, 'b>(
     let Some(index) = get_registor_index(name) else {
         return Err(ParsingError::InvalidRegistor(name));
     };
-    set_bool!(mir, "amux", false);
-    set_int!(mir, "a", index);
+    mir.set_bool("amux", false)?;
+    mir.set_int("a", index)?;
     Ok(())
 }
 
@@ -246,7 +222,7 @@ fn check_reg_b<'a, 'b>(
     name: &'a str,
 ) -> Result<(), ParsingError<'a>> {
     let Some(name) = op.name(name) else {
-        return Err(ParsingError::InvalidStatement);
+        return Err(ParsingError::InvalidExpression(op.get(0).map_or("", |m| m.as_str())));
     };
     let name = name.as_str();
     if name == "mbr" || name == "mar" {
@@ -258,14 +234,23 @@ fn check_reg_b<'a, 'b>(
     let Some(index) = get_registor_index(name) else {
         return Err(ParsingError::InvalidRegistor(name));
     };
-    set_int!(mir, "b", index);
+    // Caso B esteja ocupado e A tenha o valor desejado em B, verifica se há possibilidade de
+    // trocar A e B sem causar problemas, mas só se mar vai ser setado e !amux
+    mir.set_int("b", index).or_else(|err| {
+        if mir.get_bool("mar").unwrap_or(false) {
+            mir.set_int_force("b", mir.get_int("a").unwrap_or(0));
+            Ok(0)
+        } else {
+            Err(ParsingError::SignalAlreadyDefined(err))
+        }
+    })?;
     Ok(())
 }
 
 #[derive(Debug)]
 pub enum ParsingError<'a> {
-    SignalAlreadyDefined(String),
-    InvalidStatement,
+    SignalAlreadyDefined(ValueAlreadySet<'a>),
+    InvalidExpression(&'a str),
     InvalidRegistor(&'a str),
     InvalidCondition(&'a str),
     ImpossiblePath(&'a str, &'a str),
@@ -274,17 +259,59 @@ pub enum ParsingError<'a> {
     MicroinstructionOverflow,
 }
 
+impl<'a> Display for ParsingError<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SignalAlreadyDefined(err) => {
+                let (before, after) = match err.conflict {
+                    ConflictType::Bool { before, after } => (before.to_string(), after.to_string()),
+                    ConflictType::Int { before, after } => (before.to_string(), after.to_string()),
+                    ConflictType::Str { before, after } => (before.to_string(), after.to_string()),
+                };
+                write!(
+                    f,
+                    "Valores conflitantes para o registrador {} (antes: {}, depois: {})",
+                    err.name, before, after,
+                )
+            }
+            Self::InvalidExpression(expr) => write!(f, "Expressão inválida: \"{}\"", expr),
+            Self::InvalidRegistor(name) => write!(f, "Registrador inválido: {}", name),
+            Self::InvalidCondition(cond) => write!(f, "Condição de if inválida: {}", cond),
+            Self::ImpossiblePath(dest, expr) => write!(
+                f,
+                "Não é possível levar a expressão \"{}\" para o registrador {}",
+                expr, dest
+            ),
+            Self::IlegalRegistor(reg, expr) => write!(
+                f,
+                "Não é possível colocar o registrador {} no barramento indicado na expressão \"{}\"",
+                reg, expr
+            ),
+            Self::UnrecognizedSymbol(symb) => write!(f, "Símbolo \"{}\" não foi reconhecido", symb),
+            Self::MicroinstructionOverflow => write!(f, "Microinstruções demais para a memória"),
+        }
+    }
+}
+
+impl<'a> Error for ParsingError<'a> {}
+
+impl<'a> From<ValueAlreadySet<'a>> for ParsingError<'a> {
+    fn from(value: ValueAlreadySet<'a>) -> Self {
+        Self::SignalAlreadyDefined(value)
+    }
+}
+
 static LINE_NAME_R: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^\s*(?:(?<name>[^:]+):)?\s*(<content>.*)(?://)?").unwrap());
+    LazyLock::new(|| Regex::new(r"^\s*(?:(?<name>[^:]+):)?\s*(?<content>.*)\s*(?://)?").unwrap());
 static OUTTER_R: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*(?<dest>[\d\w_-]+)\s*:=\s*(?<operation>.+)\s*").unwrap());
 static OPERATION_R: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?:(?<add>(?<sA>[^\s\+,]+)\s*\+\s*(?<sB>[^\s\+,]+))|(?<band>band\(\s*(?<aA>[^\s\+,]+),\s*(?<aB>[^\s\+,]+)\s*\))|(?<inv>inv\(\s*(?<iA>[^\s\+,]+)\s*\))|(?<transparency>[^\s\+,]+))$").unwrap()
+    Regex::new(r"^(?:(?<add>(?<sA>[^\s\+,]+)\s*\+\s*(?<sB>[^\s\+,]+))|(?<band>band\s*\(\s*(?<aA>[^\s\+,]+),\s*(?<aB>[^\s\+,]+)\s*\))|(?<inv>inv\s*\(\s*(?<iA>[^\s\+,]+)\s*\))|(?<transparency>[^\s\+,]+))$").unwrap()
 });
 static SHIFT_R: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^(?<shift>lshift|rshift)\((?<operation>.+)\)$").unwrap());
+    LazyLock::new(|| Regex::new(r"^(?<shift>lshift|rshift)\s*\((?<operation>.+)\)$").unwrap());
 static RD_R: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*rd\s*$").unwrap());
 static WR_R: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*wr\s*$").unwrap());
 static IF_GOTO_R: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^\s*(?:if\s+(?<cond>z|n)\s*then)?\s*goto\s+(?<addr>[\d\w_-]+)\s*$").unwrap()
+    Regex::new(r"^\s*(?:if\s+(?<cond>z|n))?(?:\s*then)?\s*goto\s+(?<addr>[\d\w_-]+)\s*$").unwrap()
 });

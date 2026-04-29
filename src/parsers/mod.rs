@@ -1,4 +1,5 @@
-mod lockable;
-mod mal;
-mod mal_regex;
-mod mac;
+pub mod lockable;
+pub mod mal;
+pub mod mal_regex;
+pub mod mac;
+pub mod mac_regex;

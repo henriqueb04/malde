@@ -72,21 +72,21 @@ impl From<&u32> for ControlSignals {
     }
 }
 
-impl Into<u32> for ControlSignals {
-    fn into(self) -> u32 {
-        position_bit(&self.amux, 0) |
-        position_bits(&self.cond, 1, 3) |
-        position_bits(&self.alu, 3, 5) |
-        position_bits(&self.sh, 5, 7) |
-        position_bit(&self.mbr, 7) |
-        position_bit(&self.mar, 8) |
-        position_bit(&self.rd, 9) |
-        position_bit(&self.wr, 10) |
-        position_bit(&self.enc, 11) |
-        position_bits(&self.c, 12, 16) |
-        position_bits(&self.b, 16, 20) |
-        position_bits(&self.a, 20, 24) |
-        position_bits(&self.addr, 24, 32)
+impl From<ControlSignals> for u32 {
+    fn from(item: ControlSignals) -> u32 {
+        position_bit(&item.amux, 0) |
+        position_bits(&item.cond, 1, 3) |
+        position_bits(&item.alu, 3, 5) |
+        position_bits(&item.sh, 5, 7) |
+        position_bit(&item.mbr, 7) |
+        position_bit(&item.mar, 8) |
+        position_bit(&item.rd, 9) |
+        position_bit(&item.wr, 10) |
+        position_bit(&item.enc, 11) |
+        position_bits(&item.c, 12, 16) |
+        position_bits(&item.b, 16, 20) |
+        position_bits(&item.a, 20, 24) |
+        position_bits(&item.addr, 24, 32)
     }
 }
 
@@ -114,6 +114,28 @@ mod tests {
         };
         let n: u32 = sigs.clone().into();
         let expected = 0b1_01_10_00_10100_1001_0110_1111_10101001;
+        println!("expected: {:b}", expected);
+        println!("result  : {:b}", n);
+        assert_eq!(n, expected);
+        assert_eq!(ControlSignals::from(&n), sigs);
+
+        let sigs = ControlSignals {
+            amux: false,
+            cond: 0b11,
+            alu: 0b01,
+            sh: 0b11,
+            mbr: false,
+            mar: true,
+            rd: true,
+            wr: false,
+            enc: true,
+            c: 0b0101,
+            b: 0b0000,
+            a: 0b0001,
+            addr: 0b01111110,
+        };
+        let n: u32 = sigs.clone().into();
+        let expected = 0b0_11_01_11_01101_0101_0000_0001_01111110;
         println!("expected: {:b}", expected);
         println!("result  : {:b}", n);
         assert_eq!(n, expected);

@@ -1,6 +1,6 @@
 use crate::architecture::signals::ControlSignals;
 
-const MEMORY_SIZE: u16 = (1 << 12) - 1;
+pub const MEMORY_SIZE: u16 = (1 << 12) - 1;
 pub struct Memory {
     rd_clock_count: u8,
     wr_clock_count: u8,
@@ -16,6 +16,16 @@ impl Memory {
             previous_mar: 0,
             memory: [0; MEMORY_SIZE as usize],
         }
+    }
+
+    pub fn clear(&mut self) {
+        self.memory.fill(0);
+    }
+
+    pub fn load(&mut self, start: usize, data: &Vec<u16>) {
+        let end = usize::min(self.memory.len(), start + data.len());
+        let len = end - start;
+        self.memory[start..start+len].copy_from_slice(&data[..len]);
     }
 
     pub fn request_rd(&mut self, mar: &u16, mbr: &mut u16) {
@@ -71,5 +81,20 @@ impl Memory {
             self.request_rd(mar, mbr);
             self.previous_mar = *mar;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn load_test() {
+        let mut mem = Memory::new();
+        mem.load(5, &vec![1,2,3,4,5]);
+        assert_eq!(mem.memory[5], 1);
+        assert_eq!(mem.memory[6], 2);
+        assert_eq!(mem.memory[7], 3);
+        assert_eq!(mem.memory[8], 4);
+        assert_eq!(mem.memory[9], 5);
     }
 }

@@ -1,26 +1,12 @@
 use crate::architecture::signals::{ALUSignals, ControlSignals};
 
-#[inline]
-fn slice_bits(bits: &u32, start: usize, end: usize) -> u8 {
-    let len = start - end;
-    if len > 8 {
-        println!("Trying to slice more than 8 bits from microinstruction.");
-    }
-    let mask = (1 << len) - 1;
-    ((bits >> (32 - end)) & mask) as u8
-}
-
-fn get_bit(bits: &u32, i: u8) -> bool {
-    ((bits >> (32 - i)) & 1) == 1
-}
-
 pub struct Sequencer {
-    microinstructions: Box<[u32]>,
-    len: usize,
+    pub microinstructions: Vec<u32>,
+    pub len: usize,
 }
 
 impl Sequencer {
-    pub fn new(microinstructions: Box<[u32]>) -> Self {
+    pub fn new(microinstructions: Vec<u32>) -> Self {
         let len = microinstructions.len();
         Sequencer {
             microinstructions,
@@ -36,8 +22,8 @@ impl Sequencer {
 
 pub struct ControlUnit {
     pub signals: ControlSignals,
-    sequencer: Sequencer,
-    mpc: usize,
+    pub sequencer: Sequencer,
+    pub mpc: usize,
 }
 
 impl ControlUnit {
@@ -53,7 +39,8 @@ impl ControlUnit {
         self.sequencer.load_instruction(&self.mpc, &mut self.signals);
     }
 
-    pub fn advance(&mut self, alu_sigs: &ALUSignals) -> usize {
+    pub fn advance(&mut self, alu_sigs: &ALUSignals) -> (usize, usize) {
+        let old_mpc = self.mpc;
         self.mpc = match self.signals.cond {
             1 => if alu_sigs.n { self.signals.addr as usize } else { self.mpc + 1 },
             2 => if alu_sigs.z { self.signals.addr as usize } else { self.mpc + 1 },
@@ -63,6 +50,6 @@ impl ControlUnit {
         if self.mpc >= self.sequencer.len {
             println!("Microinstruction pc has gone out of bounds! Reseting to 0.");
         }
-        self.mpc
+        (self.mpc, old_mpc)
     }
 }

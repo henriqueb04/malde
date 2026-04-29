@@ -24,15 +24,23 @@
       in
       {
         devShells.default =
-          with pkgs;
-          mkShell {
+          with pkgs; mkShell {
             buildInputs = [
               gdb
               lldb
               (rust-bin.stable.latest.default.override {
                 extensions = [ "rust-analyzer" "rust-src" "rustfmt" ];
               })
+              libGL libxkbcommon wayland
+              libx11 libxcursor libxrandr libxi
+              zenity
             ];
+            # NIXOS_OZONE_WL = "1";
+            shellHook = ''
+            export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath (with pkgs; [
+              libGL libxkbcommon wayland
+            ])}
+            '';
           };
       }
     );

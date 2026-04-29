@@ -1,13 +1,34 @@
-use crate::parsers::{
-    lockable::ControlSignalsLockable,
-    mal_regex::{ParsingError, parse_line},
+use crate::{
+    architecture::signals::ControlSignals,
+    parsers::{lockable::ControlSignalsLockable, mal_regex::parse_line},
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
+
+pub use crate::parsers::mal_regex::ParsingError as ParsingErrorType;
+
+pub struct ParsingError<'a> {
+    lineno: usize,
+    content: &'a str,
+    error_type: ParsingErrorType<'a>,
+}
+
+impl Display for ParsingError<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Erro na linha {}: {}\n    \"{}\"", self.lineno + 1, self.error_type, self.content)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Microinstruction<'a> {
+    lineno: usize,
+    content: &'a str,
+    mir: ControlSignalsLockable<'a>,
+}
 
 pub struct MALParser<'a> {
     source: &'a str,
     symbol_table: HashMap<&'a str, usize>,
-    instructions: Vec<ControlSignalsLockable<'a>>,
+    instructions: Vec<Microinstruction<'a>>,
 }
 
 impl<'a> MALParser<'a> {
@@ -20,24 +41,46 @@ impl<'a> MALParser<'a> {
     }
 
     pub fn map_instructions(&mut self) -> Result<(), ParsingError<'a>> {
-        for line in self.source.split('\n') {
-            match parse_line(line) {
+        for (lineno, content) in self.source.split('\n').enumerate() {
+            println!("{}: {}", lineno, content);
+            match parse_line(content) {
                 Some(Ok((name, mir))) => {
                     // Faz com que os próximos valores no sequenciador mantenham os dados do anterior,
                     // modificando apenas as informações diferentes
                     // alguns valores, porém, são atribuídos com um valor padrão durante o parsing da linha
-                    if let Some(previous) = self.instructions.last() {
-                        self.instructions.push(previous.increment_self(&mir));
+                    let mic = if let Some(Microinstruction { mir: previous, .. }) =
+                        self.instructions.last()
+                    {
+                        Microinstruction {
+                            lineno,
+                            content,
+                            mir: previous.increment_self(&mir),
+                        }
                     } else {
-                        self.instructions.push(mir);
-                    }
+                        Microinstruction {
+                            lineno,
+                            content,
+                            mir,
+                        }
+                    };
+                    self.instructions.push(mic);
                     self.symbol_table.insert(name, self.instructions.len() - 1);
                     // O limite da quantidade de instruções é 8 bits
                     if self.instructions.len() > 0xff {
-                        return Err(ParsingError::MicroinstructionOverflow);
+                        return Err(ParsingError {
+                            lineno,
+                            content,
+                            error_type: ParsingErrorType::MicroinstructionOverflow,
+                        });
                     }
                 }
-                Some(Err(err)) => return Err(err),
+                Some(Err(err)) => {
+                    return Err(ParsingError {
+                        lineno,
+                        content,
+                        error_type: err,
+                    });
+                }
                 None => continue,
             };
         }
@@ -45,24 +88,30 @@ impl<'a> MALParser<'a> {
     }
 
     pub fn insert_addresses(&mut self) -> Result<(), ParsingError<'a>> {
-        for mir in self.instructions.iter_mut() {
-            if let Some(symb) = mir.get_addr_symbol() {
+        for mic in self.instructions.iter_mut() {
+            if let Some(symb) = mic.mir.get_addr_symbol() {
                 if let Some(addr) = self.symbol_table.get(symb) {
-                    let _ = mir.set_addr_force(*addr as u8);
+                    let _ = mic.mir.set_addr_force(*addr as u8);
                 } else {
-                    return Err(ParsingError::UnrecognizedSymbol(symb));
+                    return Err(ParsingError {
+                        lineno: mic.lineno,
+                        content: mic.content,
+                        error_type: ParsingErrorType::UnrecognizedSymbol(symb),
+                    });
                 }
             }
         }
         Ok(())
     }
 
-    pub fn parse_instructions(
-        &mut self,
-    ) -> Result<&Vec<ControlSignalsLockable<'a>>, ParsingError<'a>> {
+    pub fn parse_instructions(&mut self) -> Result<Vec<ControlSignals>, ParsingError<'a>> {
         self.map_instructions()?;
         self.insert_addresses()?;
-        Ok(&self.instructions)
+        Ok(self
+            .instructions
+            .iter()
+            .map(|l| ControlSignals::from(l.mir.clone()))
+            .collect())
     }
 }
 

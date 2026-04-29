@@ -4,7 +4,7 @@ use crate::architecture::signals::{
 use core::fmt;
 use std::collections::HashMap;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ControlSignalsLockable<'a> {
     int_map: HashMap<&'static str, Option<u8>>,
     bool_map: HashMap<&'static str, Option<bool>>,
@@ -12,23 +12,16 @@ pub struct ControlSignalsLockable<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ValueAlreadySet<T> {
-    name: &'static str,
-    before: T,
-    now: T,
+pub enum ConflictType<'a> {
+    Bool{ before: bool, after: bool },
+    Int{ before: u8, after: u8 },
+    Str{ before: &'a str, after: &'a str },
 }
 
-impl<T> fmt::Display for ValueAlreadySet<T>
-where
-    T: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "conflicting values {} and {} for signal {}",
-            self.before, self.now, self.name
-        )
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValueAlreadySet<'a> {
+    pub name: &'static str,
+    pub conflict: ConflictType<'a>,
 }
 
 impl<'a> ControlSignalsLockable<'a> {
@@ -66,49 +59,47 @@ impl<'a> ControlSignalsLockable<'a> {
         self.addr_symbol
     }
 
-    pub fn set_bool(&mut self, name: &'static str, v: bool) -> Result<bool, ValueAlreadySet<bool>> {
+    pub fn set_bool(&mut self, name: &'static str, v: bool) -> Result<bool, ValueAlreadySet<'a>> {
         if !CONTROL_SIGNAL_NAMES_B.contains(&name) {
-            panic!("Tentativa de setar sinal inexistente \"{}\"!", name);
+            panic!("Tentativa de setar sinal bool inexistente \"{}\"!", name);
         }
         if let Some(a) = self.bool_map.get(name).unwrap()
             && *a != v
         {
             return Err(ValueAlreadySet {
                 name,
-                before: *a,
-                now: v,
+                conflict: ConflictType::Bool { before: *a, after: v },
             });
         }
         self.bool_map.insert(name, Some(v));
         Ok(v)
     }
 
-    pub fn set_int(&mut self, name: &'static str, v: u8) -> Result<u8, ValueAlreadySet<u8>> {
+    pub fn set_int(&mut self, name: &'static str, v: u8) -> Result<u8, ValueAlreadySet<'a>> {
         if !CONTROL_SIGNAL_NAMES_U.contains(&name) {
-            panic!("Tentativa de setar sinal inexistente \"{}\"!", name);
+            panic!("Tentativa de setar sinal int inexistente \"{}\"!", name);
         }
         if let Some(a) = self.int_map.get(name).unwrap()
             && *a != v
         {
             return Err(ValueAlreadySet {
                 name,
-                before: *a,
-                now: v,
+                conflict: ConflictType::Int { before: *a, after: v },
             });
         }
         self.int_map.insert(name, Some(v));
         Ok(v)
     }
 
-    pub fn set_addr_symbol(
-        &mut self,
-        symbol: &'a str,
-    ) -> Result<&'a str, ValueAlreadySet<&'a str>> {
+    pub fn set_int_force(&mut self, name: &'static str, v: u8) {
+        self.int_map.insert(name, Some(v));
+    }
+
+    pub fn set_addr_symbol(&mut self, symbol: &'a str) -> Result<&'a str, ValueAlreadySet<'a>> {
         if let Some(a) = self.addr_symbol {
             return Err(ValueAlreadySet {
                 name: "addr",
-                before: a,
-                now: symbol,
+                conflict: ConflictType::Str { before: a, after: symbol },
             });
         }
         self.addr_symbol = Some(symbol);
@@ -165,22 +156,39 @@ impl<'a> ControlSignalsLockable<'a> {
     }
 }
 
-impl Into<ControlSignals> for ControlSignalsLockable<'_> {
-    fn into(self) -> ControlSignals {
+// fn into(self) -> ControlSignals {
+//     ControlSignals {
+//         amux: self.get_bool("amux").unwrap_or(false),
+//         cond: self.get_int("cond").unwrap_or(0),
+//         alu: self.get_int("alu").unwrap_or(0),
+//         sh: self.get_int("sh").unwrap_or(0),
+//         mbr: self.get_bool("mbr").unwrap_or(false),
+//         mar: self.get_bool("mar").unwrap_or(false),
+//         rd: self.get_bool("rd").unwrap_or(false),
+//         wr: self.get_bool("wr").unwrap_or(false),
+//         enc: self.get_bool("enc").unwrap_or(false),
+//         c: self.get_int("c").unwrap_or(0),
+//         b: self.get_int("b").unwrap_or(0),
+//         a: self.get_int("a").unwrap_or(0),
+//         addr: self.get_int("addr").unwrap_or(0),
+//     }
+// }
+impl<'a> From<ControlSignalsLockable<'a>> for ControlSignals {
+    fn from(item: ControlSignalsLockable) -> ControlSignals {
         ControlSignals {
-            amux: self.get_bool("amux").unwrap_or(false),
-            cond: self.get_int("cond").unwrap_or(0),
-            alu: self.get_int("alu").unwrap_or(0),
-            sh: self.get_int("sh").unwrap_or(0),
-            mbr: self.get_bool("mbr").unwrap_or(false),
-            mar: self.get_bool("mar").unwrap_or(false),
-            rd: self.get_bool("rd").unwrap_or(false),
-            wr: self.get_bool("wr").unwrap_or(false),
-            enc: self.get_bool("enc").unwrap_or(false),
-            c: self.get_int("c").unwrap_or(0),
-            b: self.get_int("b").unwrap_or(0),
-            a: self.get_int("a").unwrap_or(0),
-            addr: self.get_int("addr").unwrap_or(0),
+            amux: item.get_bool("amux").unwrap_or(false),
+            cond: item.get_int("cond").unwrap_or(0),
+            alu: item.get_int("alu").unwrap_or(0),
+            sh: item.get_int("sh").unwrap_or(0),
+            mbr: item.get_bool("mbr").unwrap_or(false),
+            mar: item.get_bool("mar").unwrap_or(false),
+            rd: item.get_bool("rd").unwrap_or(false),
+            wr: item.get_bool("wr").unwrap_or(false),
+            enc: item.get_bool("enc").unwrap_or(false),
+            c: item.get_int("c").unwrap_or(0),
+            b: item.get_int("b").unwrap_or(0),
+            a: item.get_int("a").unwrap_or(0),
+            addr: item.get_int("addr").unwrap_or(0),
         }
     }
 }
@@ -200,16 +208,16 @@ mod tests {
             s.set_int("b", 3),
             Err(ValueAlreadySet {
                 name: "b",
-                before: 2,
-                now: 3
+                // before: 2,
+                // now: 3,
+                conflict: ConflictType::Int { before: 2, after: 3 },
             })
         );
         assert_eq!(
             s.set_int("a", 2),
             Err(ValueAlreadySet {
                 name: "a",
-                before: 1,
-                now: 2
+                conflict: ConflictType::Int { before: 1, after: 2 },
             })
         );
         assert_eq!(s.set_int("b", 2), Ok(2));
