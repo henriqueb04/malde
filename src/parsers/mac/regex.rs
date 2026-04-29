@@ -1,4 +1,4 @@
-use regex::{Regex, Captures};
+use regex::Regex;
 use std::sync::LazyLock;
 
 pub static IDENTIFIER_R: LazyLock<Regex> = LazyLock::new(|| {

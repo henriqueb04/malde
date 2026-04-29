@@ -1,5 +1,5 @@
-use crate::parsers::lockable::{ConflictType, ControlSignalsLockable};
-use crate::{architecture::datapath::get_registor_index, parsers::lockable::ValueAlreadySet};
+use crate::parsers::mal::lockable::{ConflictType, ControlSignalsLockable, ValueAlreadySet};
+use crate::architecture::datapath::get_registor_index;
 use regex::{Captures, Regex};
 use std::error::Error;
 use std::{fmt::Display, sync::LazyLock};

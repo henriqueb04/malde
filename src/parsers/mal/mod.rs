@@ -1,10 +1,13 @@
+mod lockable;
+mod regex;
+
 use crate::{
     architecture::signals::ControlSignals,
-    parsers::{lockable::ControlSignalsLockable, mal_regex::parse_line},
+    parsers::mal::{lockable::ControlSignalsLockable, regex::parse_line},
 };
 use std::{collections::HashMap, fmt::Display};
 
-pub use crate::parsers::mal_regex::ParsingError as ParsingErrorType;
+pub use crate::parsers::mal::regex::ParsingError as ParsingErrorType;
 
 pub struct ParsingError<'a> {
     lineno: usize,

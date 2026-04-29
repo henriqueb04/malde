@@ -1,4 +1,6 @@
-use crate::parsers::mac_regex::*;
+mod regex;
+
+use crate::parsers::mac::regex::*;
 use core::fmt;
 use std::collections::HashMap;
 
