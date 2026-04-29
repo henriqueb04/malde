@@ -25,7 +25,7 @@ pub fn get_registor_index(registor_name: &str) -> Option<u8> {
 pub const DEFAULT_REGISTOR_VALUES: [u16; 16] = [
     0,
     0,
-    0,
+    (1 << 12) as u16, // sp (no final da memória)
     0,
     0,
     0,                      // 0

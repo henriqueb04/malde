@@ -15,7 +15,6 @@ pub fn parse_line<'a>(
         if expr.trim().is_empty() {
             continue;
         }
-        println!("{}", expr);
         if let Err(err) = parse_expr(expr, &mut mir) {
             return Some(Err(err));
         }

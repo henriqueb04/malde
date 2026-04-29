@@ -20,9 +20,9 @@ impl Display for ParsingError<'_> {
 
 #[derive(Debug, Clone)]
 pub struct Microinstruction<'a> {
-    lineno: usize,
-    content: &'a str,
-    mir: ControlSignalsLockable<'a>,
+    pub lineno: usize,
+    pub content: &'a str,
+    pub mir: ControlSignalsLockable<'a>,
 }
 
 pub struct MALParser<'a> {
@@ -42,7 +42,6 @@ impl<'a> MALParser<'a> {
 
     pub fn map_instructions(&mut self) -> Result<(), ParsingError<'a>> {
         for (lineno, content) in self.source.split('\n').enumerate() {
-            println!("{}: {}", lineno, content);
             match parse_line(content) {
                 Some(Ok((name, mir))) => {
                     // Faz com que os próximos valores no sequenciador mantenham os dados do anterior,
@@ -104,14 +103,14 @@ impl<'a> MALParser<'a> {
         Ok(())
     }
 
-    pub fn parse_instructions(&mut self) -> Result<Vec<ControlSignals>, ParsingError<'a>> {
+    pub fn parse_instructions(&mut self) -> Result<(Vec<ControlSignals>, Vec<Microinstruction<'a>>), ParsingError<'a>> {
         self.map_instructions()?;
         self.insert_addresses()?;
-        Ok(self
+        Ok((self
             .instructions
             .iter()
             .map(|l| ControlSignals::from(l.mir.clone()))
-            .collect())
+            .collect(), self.instructions.clone()))
     }
 }
 

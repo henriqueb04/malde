@@ -6,6 +6,7 @@ mod parsers;
 use std::fs;
 
 use eframe::egui;
+use egui_extras::{Column, TableBuilder};
 
 use crate::architecture::Cpu;
 use crate::architecture::datapath::REGISTOR_NAMES;
@@ -32,10 +33,137 @@ pub struct MyApp {
     cpu: Cpu,
     mir: Option<ControlSignals>,
     cur_mpc: usize,
+    microinstructions: Vec<String>,
+    mem_view_index: usize,
 }
 
 impl eframe::App for MyApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        egui::Panel::right("right_panel")
+            .resizable(true)
+            .min_size(350.0)
+            .show_inside(ui, |ui| {
+                if self.cpu.is_ready() {
+                    if ui.button("Próxima microinstrução").clicked() {
+                        self.advance_microinstruction();
+                        self.mir = Some(self.cpu.get_control_signals().clone());
+                    }
+                    if ui.button("Resetar").clicked() {
+                        self.reset_cpu();
+                    }
+                }
+                if let Some(mir) = self.mir.as_ref() {
+                    ui.label(format!(
+                        "Microinstrução atual: {}",
+                        self.microinstructions
+                            .get(self.cur_mpc)
+                            .map(|s| s.as_str())
+                            .unwrap_or("")
+                    ));
+                    ui.label(format!(
+                        concat!(
+                            "Registrador de Microinstrução:\n",
+                            "amux: {}\n",
+                            "cond: {}\n",
+                            "alu: {}\n",
+                            "sh: {}\n",
+                            "mbr: {}\n",
+                            "mar: {}\n",
+                            "rd: {}\n",
+                            "wr: {}\n",
+                            "enc: {}\n",
+                            "c: {}\n",
+                            "b: {}\n",
+                            "a: {}\n",
+                            "addr: {}\n",
+                        ),
+                        mir.amux,
+                        mir.cond,
+                        mir.alu,
+                        mir.sh,
+                        mir.mbr,
+                        mir.mar,
+                        mir.rd,
+                        mir.wr,
+                        mir.enc,
+                        mir.c,
+                        mir.b,
+                        mir.a,
+                        mir.addr
+                    ));
+                    let mut regs = String::new();
+                    let (mar, mbr, registors) = self.cpu.get_registors();
+                    for (i, &reg) in REGISTOR_NAMES.iter().enumerate() {
+                        if reg == "ir" || reg == "tir" || reg == "amask" || reg == "smask" {
+                            regs.push_str(
+                                format!("({}) {}: {:016b}\n", i, reg, registors[i] as i16).as_str(),
+                            );
+                        } else {
+                            regs.push_str(
+                                format!("({}) {}: {}\n", i, reg, registors[i] as i16).as_str(),
+                            );
+                        }
+                    }
+                    regs.push_str(format!("mar: {}\n", mar).as_str());
+                    regs.push_str(format!("mbr: {}", mbr as i16).as_str());
+                    ui.label("Registradores:");
+                    ui.label(regs.as_str());
+                }
+            });
+        egui::Panel::bottom("bottom_panel")
+            .resizable(true)
+            .min_size(500.0)
+            .show_inside(ui, |ui| {
+                let memory = self.cpu.get_memory();
+                let text_height = egui::TextStyle::Body
+                    .resolve(ui.style())
+                    .size
+                    .max(ui.spacing().interact_size.y);
+                let available_height = ui.available_height();
+                let n_rows = 20;
+                let n_cols = 12;
+                let table = TableBuilder::new(ui)
+                    .striped(true)
+                    .resizable(false)
+                    .cell_layout(egui::Layout::right_to_left(egui::Align::Center))
+                    .column(
+                        Column::remainder()
+                            .at_least(100.0)
+                            .clip(true)
+                            .resizable(true),
+                    )
+                    .columns(Column::auto(), n_cols)
+                    .min_scrolled_height(0.0)
+                    .max_scroll_height(available_height);
+                table
+                    .header(20.0, |mut header| {
+                        header.col(|ui| {
+                            ui.strong("Endereço");
+                        });
+                        for i in 0..n_cols {
+                            header.col(|ui| {
+                                ui.strong(format!("(+{})", i));
+                            });
+                        }
+                    })
+                    .body(|body| {
+                        body.rows(text_height, n_rows, |mut row| {
+                            let row_index = self.mem_view_index + row.index() * n_cols;
+                            row.col(|ui| {
+                                ui.strong(row_index.to_string());
+                            });
+                            for i in 0..n_cols {
+                                row.col(|ui| {
+                                    if let Some(v) = memory.get(row_index + i).map(|v| *v as i16) {
+                                        ui.label(format!("{:#06x}", v));
+                                    } else {
+                                        ui.label("---");
+                                    }
+                                });
+                            }
+                        })
+                    });
+            });
         egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.horizontal(|ui| {
                 if ui.button("Carregar arquivo MAC").clicked()
@@ -57,70 +185,16 @@ impl eframe::App for MyApp {
             });
             ui.horizontal(|ui| {
                 if let Some(micro_path) = self.microprogram.clone() {
-                    if ui.button("Montar Microprograma").clicked() {
+                    if ui.button("🔧 Montar Microprograma").clicked() {
                         self.assemble_micro(micro_path.as_str());
                     }
                 }
                 if let Some(macro_path) = self.macroprogram.clone() {
-                    if ui.button("Montar Macroprograma").clicked() {
+                    if ui.button("🔧 Montar Macroprograma").clicked() {
                         self.assemble_macro(macro_path.as_str());
                     }
                 }
             });
-            if self.cpu.is_ready() {
-                if ui.button("Próxima microinstrução").clicked() {
-                    self.advance_microinstruction();
-                    self.mir = Some(self.cpu.get_control_signals().clone());
-                }
-                if ui.button("Resetar").clicked() {
-                    self.reset_cpu();
-                }
-            }
-            if let Some(mir) = self.mir.as_ref() {
-                ui.label(format!(
-                    "Registrador de Microinstrução:
-amux: {}
-cond: {}
-alu: {}
-sh: {}
-mbr: {}
-mar: {}
-rd: {}
-wr: {}
-enc: {}
-c: {}
-b: {}
-a: {}
-addr: {}
-",
-                    mir.amux,
-                    mir.cond,
-                    mir.alu,
-                    mir.sh,
-                    mir.mbr,
-                    mir.mar,
-                    mir.rd,
-                    mir.wr,
-                    mir.enc,
-                    mir.c,
-                    mir.b,
-                    mir.a,
-                    mir.addr
-                ));
-                let mut regs = String::new();
-                let (mar, mbr, registors) = self.cpu.get_registors();
-                for (i, &reg) in REGISTOR_NAMES.iter().enumerate() {
-                    if reg == "ir" || reg == "tir" || reg == "amask" || reg == "smask" {
-                        regs.push_str(format!("{}: {:016b}\n", reg, registors[i] as i16).as_str());
-                    } else {
-                        regs.push_str(format!("{}: {}\n", reg, registors[i] as i16).as_str());
-                    }
-                }
-                regs.push_str(format!("mar: {}", mar).as_str());
-                regs.push_str(format!("mbr: {}", mbr as i16).as_str());
-                ui.label("Registradores:");
-                ui.label(regs.as_str());
-            }
         });
         if self.msg_modal_open {
             let modal = egui::Modal::new(egui::Id::new("Msg modal 1")).show(ui, |ui| {
@@ -157,6 +231,8 @@ impl MyApp {
             cpu: Cpu::new(Vec::new()),
             mir: None,
             cur_mpc: 0,
+            microinstructions: Vec::new(),
+            mem_view_index: 0,
         }
     }
     fn assemble_micro(&mut self, path: &str) {
@@ -166,12 +242,15 @@ impl MyApp {
         };
         let mut mal_parser = mal::MALParser::new(&contents);
         match mal_parser.parse_instructions() {
-            Ok(microinstructions) => self.cpu.load_microinstructions(
-                microinstructions
+            Ok((micro_mem, microinstructions)) => {
+                self.cpu.load_microinstructions(
+                    micro_mem.iter().map(|v| u32::from(v.clone())).collect(),
+                );
+                self.microinstructions = microinstructions
                     .iter()
-                    .map(|v| u32::from(v.clone()))
-                    .collect(),
-            ),
+                    .map(|m| String::from(m.content))
+                    .collect();
+            }
             Err(err) => self.show_error_modal(err.to_string()),
         }
     }

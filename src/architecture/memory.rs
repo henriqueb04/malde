@@ -82,6 +82,10 @@ impl Memory {
             self.previous_mar = *mar;
         }
     }
+
+    pub fn get_ref(&self) -> &[u16; MEMORY_SIZE as usize] {
+        &self.memory
+    }
 }
 
 #[cfg(test)]

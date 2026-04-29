@@ -128,14 +128,12 @@ impl<'a> ASMParser<'a> {
                     if let Some(valuesn) = cap.name("valuesn").map(|v| v.as_str()) {
                         let mut m: Vec<u16> = Vec::new();
                         if let Ok(n) = value1.parse::<i16>() {
-                            println!("value1: {}", n);
                             m.push(n as u16);
                         } else {
                             return Err((lineno, ParsingErrorType::InvalidNumber(value1)));
                         }
                         for valuen in &COMMA_R.split(valuesn).collect::<Vec<&str>>()[1..] {
                             if let Ok(n) = valuen.parse::<i16>() {
-                                println!("valuen: {}", n);
                                 m.push(n as u16);
                             } else {
                                 return Err((lineno, ParsingErrorType::InvalidNumber(valuen)));

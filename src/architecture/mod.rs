@@ -83,4 +83,8 @@ impl Cpu {
     pub fn get_control_signals(&self) -> &ControlSignals {
         &self.control_unit.signals
     }
+
+    pub fn get_memory(&self) -> &[u16] {
+        self.memory.get_ref()
+    }
 }
