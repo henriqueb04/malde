@@ -10,6 +10,7 @@ use egui_extras::{Column, TableBuilder};
 
 use crate::architecture::Cpu;
 use crate::architecture::datapath::REGISTOR_NAMES;
+use crate::architecture::memory::MEMORY_SIZE;
 use crate::architecture::signals::ControlSignals;
 use crate::parsers::{mac, mal};
 
@@ -53,16 +54,16 @@ impl eframe::App for MyApp {
                     }
                 }
                 if let Some(mir) = self.mir.as_ref() {
-                    ui.label(format!(
-                        "Microinstrução atual: {}",
+                    ui.strong("Microinstrução atual:");
+                    ui.label(
                         self.microinstructions
                             .get(self.cur_mpc)
                             .map(|s| s.as_str())
                             .unwrap_or("")
-                    ));
+                    );
+                    ui.strong("Registrador de Microinstrução:");
                     ui.label(format!(
                         concat!(
-                            "Registrador de Microinstrução:\n",
                             "amux: {}\n",
                             "cond: {}\n",
                             "alu: {}\n",
@@ -106,7 +107,7 @@ impl eframe::App for MyApp {
                     }
                     regs.push_str(format!("mar: {}\n", mar).as_str());
                     regs.push_str(format!("mbr: {}", mbr as i16).as_str());
-                    ui.label("Registradores:");
+                    ui.strong("Registradores:");
                     ui.label(regs.as_str());
                 }
             });
@@ -150,12 +151,17 @@ impl eframe::App for MyApp {
                         body.rows(text_height, n_rows, |mut row| {
                             let row_index = self.mem_view_index + row.index() * n_cols;
                             row.col(|ui| {
-                                ui.strong(row_index.to_string());
+                                if row_index < MEMORY_SIZE as usize {
+                                    ui.strong(row_index.to_string());
+                                } else {
+                                    ui.strong("---");
+                                }
                             });
                             for i in 0..n_cols {
                                 row.col(|ui| {
                                     if let Some(v) = memory.get(row_index + i).map(|v| *v as i16) {
-                                        ui.label(format!("{:#06x}", v));
+                                        // ui.label(format!("{:#06x}", v));
+                                        ui.label(format!("{:05}", v));
                                     } else {
                                         ui.label("---");
                                     }
@@ -163,6 +169,17 @@ impl eframe::App for MyApp {
                             }
                         })
                     });
+                ui.horizontal(|ui| {
+                    if ui.button("⬅").clicked() {
+                        self.mem_view_index = self.mem_view_index.saturating_sub(n_cols * n_rows);
+                    }
+                    if ui.button("➡").clicked() {
+                        let new_index = self.mem_view_index + n_cols * n_rows;
+                        if new_index < MEMORY_SIZE as usize {
+                            self.mem_view_index = new_index;
+                        }
+                    }
+                });
             });
         egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.horizontal(|ui| {
@@ -274,6 +291,7 @@ impl MyApp {
     }
     fn reset_cpu(&mut self) {
         self.cpu.reset();
+        self.mir = None;
     }
 
     fn advance_microinstruction(&mut self) {
