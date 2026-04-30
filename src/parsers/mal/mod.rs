@@ -182,5 +182,23 @@ mod tests {
         assert_eq!(mir.get_int("b"), Some(3));
         assert_eq!(mir.get_int("c"), Some(4));
         assert_eq!(mir.get_addr_symbol(), Some("19"));
+
+        let (name, mir) = parse_line("34: mar := a; mbr := ac; wr; goto 10;")
+            .unwrap()
+            .unwrap();
+        assert_eq!(name, "34");
+        assert_eq!(mir.get_bool("amux"), Some(false));
+        assert_eq!(mir.get_int("cond"), Some(3));
+        assert_eq!(mir.get_int("alu"), Some(2));
+        assert_eq!(mir.get_int("sh"), Some(0));
+        assert_eq!(mir.get_bool("rd"), Some(false));
+        assert_eq!(mir.get_bool("wr"), Some(true));
+        assert_eq!(mir.get_bool("mar"), Some(true));
+        assert_eq!(mir.get_bool("mbr"), Some(true));
+        assert_eq!(mir.get_bool("enc"), Some(false));
+        assert_eq!(mir.get_int("a"), Some(1));
+        assert_eq!(mir.get_int("b"), Some(10));
+        assert_eq!(mir.get_int("c"), None);
+        assert_eq!(mir.get_addr_symbol(), Some("10"));
     }
 }

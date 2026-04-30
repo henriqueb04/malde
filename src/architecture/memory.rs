@@ -1,6 +1,6 @@
 use crate::architecture::signals::ControlSignals;
 
-pub const MEMORY_SIZE: u16 = (1 << 12) - 1;
+pub const MEMORY_SIZE: u16 = 1 << 12;
 pub struct Memory {
     rd_clock_count: u8,
     wr_clock_count: u8,

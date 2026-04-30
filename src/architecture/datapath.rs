@@ -148,12 +148,12 @@ impl Datapath {
         if signals.mar {
             self.load_to_mar();
         }
-        if signals.mbr {
-            self.load_to_mbr();
-        }
         self.alu_in_a = if signals.amux { self.mbr } else { self.bus_a };
         self.alu_operate(signals.alu);
         self.shift(signals.sh);
+        if signals.mbr {
+            self.load_to_mbr();
+        }
         if signals.enc {
             self.load_to_registor(signals.c);
         }
