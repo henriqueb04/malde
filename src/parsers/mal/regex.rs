@@ -86,6 +86,7 @@ fn parse_expr<'a, 'b>(
     let dest_is_registor = dest_index.is_some();
     let dest_is_mbr = dest == "mbr";
     let dest_is_mar = dest == "mar";
+    let dest_is_alu = dest == "alu";
     // Ativar ENC se tentar atribuir a um registrador
     if dest_is_registor {
         mir.set_bool("enc", true)?;
@@ -94,6 +95,9 @@ fn parse_expr<'a, 'b>(
     // Ativar MBR se o atributo para este
     if dest_is_mbr {
         mir.set_bool("mbr", true)?;
+    }
+    if !(dest_is_registor || dest_is_mar || dest_is_mbr || dest_is_alu) {
+        return Err(ParsingError::InvalidRegistor(dest));
     }
     // Começo da operação
     let mut operation = operation.as_str();
