@@ -100,7 +100,7 @@ impl Datapath {
     }
 
     fn alu_not(&mut self) {
-        self.alu_out = self.alu_in_a ^ ((1 << 16 - 1) as u16);
+        self.alu_out = self.alu_in_a ^ (-1i16 as u16);
     }
 
     fn alu_operate(&mut self, op: u8) {
