@@ -1,7 +1,6 @@
 use crate::architecture::signals::{
     CONTROL_SIGNAL_NAMES_B, CONTROL_SIGNAL_NAMES_U, ControlSignals,
 };
-use core::fmt;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -127,7 +126,7 @@ impl<'a> ControlSignalsLockable<'a> {
                 return false;
             }
         }
-        return true;
+        true
     }
 
     pub fn is_all_none(&self) -> bool {
@@ -141,7 +140,7 @@ impl<'a> ControlSignalsLockable<'a> {
                 return false;
             }
         }
-        return true;
+        true
     }
 
     pub fn increment_self(&self, other: &ControlSignalsLockable<'a>) -> ControlSignalsLockable<'a> {

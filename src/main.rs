@@ -78,15 +78,15 @@ impl eframe::App for MyApp {
                             "a: {}\n",
                             "addr: {}\n",
                         ),
-                        mir.amux,
+                        mir.amux as i8,
                         mir.cond,
                         mir.alu,
                         mir.sh,
-                        mir.mbr,
-                        mir.mar,
-                        mir.rd,
-                        mir.wr,
-                        mir.enc,
+                        mir.mbr as i8,
+                        mir.mar as i8,
+                        mir.rd as i8,
+                        mir.wr as i8,
+                        mir.enc as i8,
                         mir.c,
                         mir.b,
                         mir.a,
@@ -189,7 +189,7 @@ impl eframe::App for MyApp {
                     println!("Macroprograma: {}", path.display());
                     self.macroprogram = Some(path.display().to_string());
                 }
-                ui.label(self.macroprogram.as_ref().map(|v| v.as_str()).unwrap_or(""));
+                ui.label(self.macroprogram.as_deref().unwrap_or(""));
             });
             ui.horizontal(|ui| {
                 if ui.button("Carregar arquivo MAL").clicked()
@@ -198,19 +198,17 @@ impl eframe::App for MyApp {
                     println!("Microprograma: {}", path.display());
                     self.microprogram = Some(path.display().to_string());
                 }
-                ui.label(self.microprogram.as_ref().map(|v| v.as_str()).unwrap_or(""));
+                ui.label(self.microprogram.as_deref().unwrap_or(""));
             });
             ui.horizontal(|ui| {
-                if let Some(micro_path) = self.microprogram.clone() {
-                    if ui.button("🔧 Montar Microprograma").clicked() {
+                if let Some(micro_path) = self.microprogram.clone()
+                    && ui.button("🔧 Montar Microprograma").clicked() {
                         self.assemble_micro(micro_path.as_str());
                     }
-                }
-                if let Some(macro_path) = self.macroprogram.clone() {
-                    if ui.button("🔧 Montar Macroprograma").clicked() {
+                if let Some(macro_path) = self.macroprogram.clone()
+                    && ui.button("🔧 Montar Macroprograma").clicked() {
                         self.assemble_macro(macro_path.as_str());
                     }
-                }
             });
         });
         if self.msg_modal_open {
@@ -285,7 +283,7 @@ impl MyApp {
             Err((lineno, error_type)) => self.show_error_modal(format!(
                 "Erro no macroprograma, linha {}: {}",
                 lineno,
-                error_type.to_string()
+                error_type
             )),
         }
     }

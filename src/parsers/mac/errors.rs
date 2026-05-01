@@ -11,7 +11,6 @@ pub enum ParsingErrorType<'a> {
     NumberTooSmall(isize, usize),
     InvalidInstruction(String),
     UnsupportedDirective(&'a str),
-    InvalidDataDefinition(&'static str, &'a str),
     InvalidString(&'a str),
     InvalidChar(&'a str),
 }
@@ -40,7 +39,7 @@ impl Display for ParsingErrorType<'_> {
             }
             Self::InvalidInstruction(ins) => write!(f, "Instrução inválida \"{}\"", ins),
             Self::UnsupportedDirective(dir) => write!(f, "Diretiva \"{}\" não suportada", dir),
-            Self::InvalidDataDefinition(_reason, content) => write!(f, "Declaração data inválida \"{}\"", content),
+            // Self::InvalidDataDefinition(_reason, content) => write!(f, "Declaração data inválida \"{}\"", content),
             Self::InvalidString(content) => write!(f, "String inválida '{}'", content),
             Self::InvalidChar(content) => write!(f, "Caractere inválido '{}'", content),
         }
