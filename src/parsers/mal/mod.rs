@@ -17,7 +17,13 @@ pub struct ParsingError<'a> {
 
 impl Display for ParsingError<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Erro na linha {}: {}\n    \"{}\"", self.lineno + 1, self.error_type, self.content)
+        write!(
+            f,
+            "Erro na linha {}: {}\n    \"{}\"",
+            self.lineno + 1,
+            self.error_type,
+            self.content
+        )
     }
 }
 
@@ -47,23 +53,10 @@ impl<'a> MALParser<'a> {
         for (lineno, content) in self.source.split('\n').enumerate() {
             match parse_line(content) {
                 Some(Ok((name, mir))) => {
-                    // Faz com que os próximos valores no sequenciador mantenham os dados do anterior,
-                    // modificando apenas as informações diferentes
-                    // alguns valores, porém, são atribuídos com um valor padrão durante o parsing da linha
-                    let mic = if let Some(Microinstruction { mir: previous, .. }) =
-                        self.instructions.last()
-                    {
-                        Microinstruction {
-                            lineno,
-                            content,
-                            mir: previous.increment_self(&mir),
-                        }
-                    } else {
-                        Microinstruction {
-                            lineno,
-                            content,
-                            mir,
-                        }
+                    let mic = Microinstruction {
+                        lineno,
+                        content,
+                        mir,
                     };
                     self.instructions.push(mic);
                     self.symbol_table.insert(name, self.instructions.len() - 1);
@@ -106,14 +99,18 @@ impl<'a> MALParser<'a> {
         Ok(())
     }
 
-    pub fn parse_instructions(&mut self) -> Result<(Vec<ControlSignals>, Vec<Microinstruction<'a>>), ParsingError<'a>> {
+    pub fn parse_instructions(
+        &mut self,
+    ) -> Result<(Vec<ControlSignals>, Vec<Microinstruction<'a>>), ParsingError<'a>> {
         self.map_instructions()?;
         self.insert_addresses()?;
-        Ok((self
-            .instructions
-            .iter()
-            .map(|l| ControlSignals::from(l.mir.clone()))
-            .collect(), self.instructions.clone()))
+        Ok((
+            self.instructions
+                .iter()
+                .map(|l| ControlSignals::from(l.mir.clone()))
+                .collect(),
+            self.instructions.clone(),
+        ))
     }
 }
 

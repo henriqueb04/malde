@@ -142,36 +142,8 @@ impl<'a> ControlSignalsLockable<'a> {
         }
         true
     }
-
-    pub fn increment_self(&self, other: &ControlSignalsLockable<'a>) -> ControlSignalsLockable<'a> {
-        let mut new = other.clone();
-        for name in CONTROL_SIGNAL_NAMES_B {
-            let _ = new.set_bool(name, self.get_bool(name).unwrap_or(false));
-        }
-        for name in CONTROL_SIGNAL_NAMES_U {
-            let _ = new.set_int(name, self.get_int(name).unwrap_or(0));
-        }
-        new
-    }
 }
 
-// fn into(self) -> ControlSignals {
-//     ControlSignals {
-//         amux: self.get_bool("amux").unwrap_or(false),
-//         cond: self.get_int("cond").unwrap_or(0),
-//         alu: self.get_int("alu").unwrap_or(0),
-//         sh: self.get_int("sh").unwrap_or(0),
-//         mbr: self.get_bool("mbr").unwrap_or(false),
-//         mar: self.get_bool("mar").unwrap_or(false),
-//         rd: self.get_bool("rd").unwrap_or(false),
-//         wr: self.get_bool("wr").unwrap_or(false),
-//         enc: self.get_bool("enc").unwrap_or(false),
-//         c: self.get_int("c").unwrap_or(0),
-//         b: self.get_int("b").unwrap_or(0),
-//         a: self.get_int("a").unwrap_or(0),
-//         addr: self.get_int("addr").unwrap_or(0),
-//     }
-// }
 impl<'a> From<ControlSignalsLockable<'a>> for ControlSignals {
     fn from(item: ControlSignalsLockable) -> ControlSignals {
         ControlSignals {

@@ -21,15 +21,18 @@ pub fn parse_line<'a>(
     }
     // Valores padrão, são ignorados se já estiverem presentes
     let _ = mir.set_bool("amux", false);
-    let _ = mir.set_bool("enc", false);
-    let _ = mir.set_bool("mar", false);
+    let _ = mir.set_int("cond", 0);
+    let _ = mir.set_int("alu", 0);
+    let _ = mir.set_int("sh", 0);
     let _ = mir.set_bool("mbr", false);
+    let _ = mir.set_bool("mar", false);
     let _ = mir.set_bool("rd", false);
     let _ = mir.set_bool("wr", false);
-    if mir.get_bool("enc").unwrap_or(false) || mir.get_bool("mbr").unwrap_or(false) {
-        let _ = mir.set_int("sh", 0);
-    }
-    let _ = mir.set_int("cond", 0);
+    let _ = mir.set_bool("enc", false);
+    let _ = mir.set_int("c", 0);
+    let _ = mir.set_int("b", 0);
+    let _ = mir.set_int("a", 0);
+    let _ = mir.set_int("addr", 0);
     Some(Ok((line_name, mir)))
 }
 
