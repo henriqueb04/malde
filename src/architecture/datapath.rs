@@ -40,7 +40,7 @@ pub const DEFAULT_REGISTOR_VALUES: [u16; 16] = [
     0,
     0,
 ];
-pub const REGISTOR_NAMES: [&'static str; 16] = [
+pub const REGISTOR_NAMES: [&str; 16] = [
     "pc", "ac", "sp", "ir", "tir", "0", "1", "-1", "amask", "smask", "a", "b", "c", "d", "e", "f",
 ];
 pub fn get_registor_name(registor_index: u8) -> &'static str {

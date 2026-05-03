@@ -1,12 +1,12 @@
-use crate::parsers::mal::lockable::{ConflictType, ControlSignalsLockable, ValueAlreadySet};
-use crate::architecture::datapath::get_registor_index;
 use regex::{Captures, Regex};
-use std::error::Error;
-use std::{fmt::Display, sync::LazyLock};
+use std::sync::LazyLock;
+use crate::parsers::mal::lockable::ControlSignalsLockable;
+use crate::architecture::datapath::get_registor_index;
+use crate::parsers::mal::errors::ParsingErrorType;
 
 pub fn parse_line<'a>(
     line: &'a str,
-) -> Option<Result<(&'a str, ControlSignalsLockable<'a>), ParsingError<'a>>> {
+) -> Option<Result<(&'a str, ControlSignalsLockable<'a>), ParsingErrorType<'a>>> {
     let mut mir = ControlSignalsLockable::new();
     let line_name_capture = LINE_NAME_R.captures(line)?;
     let line_name = line_name_capture.name("name")?.as_str();
@@ -39,7 +39,7 @@ pub fn parse_line<'a>(
 fn parse_expr<'a, 'b>(
     expr: &'a str,
     mir: &'b mut ControlSignalsLockable<'a>,
-) -> Result<&'b ControlSignalsLockable<'a>, ParsingError<'a>> {
+) -> Result<&'b ControlSignalsLockable<'a>, ParsingErrorType<'a>> {
     // Procura rd ou wr
     if RD_R.captures(expr).is_some() {
         mir.set_bool("rd", true)?;
@@ -60,7 +60,7 @@ fn parse_expr<'a, 'b>(
                     mir.set_int("cond", 2)?;
                 }
                 _ => {
-                    return Err(ParsingError::InvalidCondition(cond));
+                    return Err(ParsingErrorType::InvalidCondition(cond));
                 }
             }
         }
@@ -69,19 +69,19 @@ fn parse_expr<'a, 'b>(
         if let Some(addr) = goto.name("addr") {
             mir.set_addr_symbol(addr.as_str())?;
         } else {
-            return Err(ParsingError::InvalidExpression(expr));
+            return Err(ParsingErrorType::InvalidExpression(expr));
         }
         return Ok(mir);
     }
     // Procura por expressões de atribuição (aaa := xxx)
     let Some(outter) = OUTTER_R.captures(expr) else {
-        return Err(ParsingError::InvalidExpression(expr));
+        return Err(ParsingErrorType::InvalidExpression(expr));
     };
     let Some(dest) = outter.name("dest") else {
-        return Err(ParsingError::InvalidExpression(expr));
+        return Err(ParsingErrorType::InvalidExpression(expr));
     };
     let Some(operation) = outter.name("operation") else {
-        return Err(ParsingError::InvalidExpression(expr));
+        return Err(ParsingErrorType::InvalidExpression(expr));
     };
     // Verificações
     let dest = dest.as_str();
@@ -100,7 +100,7 @@ fn parse_expr<'a, 'b>(
         mir.set_bool("mbr", true)?;
     }
     if !(dest_is_registor || dest_is_mar || dest_is_mbr || dest_is_alu) {
-        return Err(ParsingError::InvalidRegistor(dest));
+        return Err(ParsingErrorType::InvalidRegistor(dest));
     }
     // Começo da operação
     let mut operation = operation.as_str();
@@ -109,24 +109,24 @@ fn parse_expr<'a, 'b>(
     if let Some(shifter) = shifter {
         // Não dá pra chegar em MAR depois de passar pelo deslocador
         if dest_is_mar {
-            return Err(ParsingError::ImpossiblePath(
+            return Err(ParsingErrorType::ImpossiblePath(
                 dest,
                 shifter.get(0).unwrap().as_str(),
             ));
         }
         // Só pra garantir que o regex não falhou
         let Some(sh) = shifter.name("shift") else {
-            return Err(ParsingError::InvalidExpression(expr));
+            return Err(ParsingErrorType::InvalidExpression(expr));
         };
         mir.set_int("sh", if sh.as_str() == "lshift" { 1 } else { 2 })?;
         let Some(shift_op) = shifter.name("operation") else {
-            return Err(ParsingError::InvalidExpression(expr));
+            return Err(ParsingErrorType::InvalidExpression(expr));
         };
         operation = shift_op.as_str();
     }
     // Depois de verificar o shifter
     let Some(op) = OPERATION_R.captures(operation) else {
-        return Err(ParsingError::InvalidExpression(expr));
+        return Err(ParsingErrorType::InvalidExpression(expr));
     };
     // É impossível realizar qualquer operação quando atribuindo valor ao MAR, portanto,
     // usamos a "operação" de tranparência
@@ -136,9 +136,9 @@ fn parse_expr<'a, 'b>(
             let name = name.as_str();
             let Some(index) = get_registor_index(name) else {
                 if name == "mar" || name == "mbr" {
-                    return Err(ParsingError::ImpossiblePath(dest, name));
+                    return Err(ParsingErrorType::ImpossiblePath(dest, name));
                 }
-                return Err(ParsingError::InvalidRegistor(name));
+                return Err(ParsingErrorType::InvalidRegistor(name));
             };
             // Caso B esteja ocupado e A tenha o valor desejado em B, verifica se há possibilidade de
             // trocar A e B sem causar problemas, mas só se isso não já tiver sido feito e !amux
@@ -149,12 +149,12 @@ fn parse_expr<'a, 'b>(
                 {
                     mir.swap_a_b();
                 } else {
-                    return Err(ParsingError::SignalAlreadyDefined(err));
+                    return Err(ParsingErrorType::SignalAlreadyDefined(err));
                 }
             }
             mir.set_bool("mar", true)?;
         } else {
-            return Err(ParsingError::ImpossiblePath(
+            return Err(ParsingErrorType::ImpossiblePath(
                 dest,
                 op.get(0).unwrap().as_str(),
             ));
@@ -189,7 +189,7 @@ fn parse_expr<'a, 'b>(
         check_reg_a(mir, &op, "transparency")?;
         mir.set_int("alu", 2)?;
     } else {
-        return Err(ParsingError::InvalidExpression(expr));
+        return Err(ParsingErrorType::InvalidExpression(expr));
     }
     Ok(mir)
 }
@@ -198,24 +198,24 @@ fn check_reg_a<'a, 'b>(
     mir: &'b mut ControlSignalsLockable<'a>,
     op: &'b Captures<'a>,
     name: &'a str,
-) -> Result<(), ParsingError<'a>>
+) -> Result<(), ParsingErrorType<'a>>
     where 'a: 'b
 {
     let Some(name) = op.name(name) else {
-        return Err(ParsingError::InvalidExpression(op.get(0).map_or("", |m| m.as_str())));
+        return Err(ParsingErrorType::InvalidExpression(op.get(0).map_or("", |m| m.as_str())));
     };
     let name = name.as_str();
     if name == "mbr" {
         mir.set_bool("amux", true)?;
         return Ok(());
     } else if name == "mar" {
-        return Err(ParsingError::IlegalRegistor(
+        return Err(ParsingErrorType::IlegalRegistor(
             name,
             op.get(0).unwrap().as_str(),
         ));
     }
     let Some(index) = get_registor_index(name) else {
-        return Err(ParsingError::InvalidRegistor(name));
+        return Err(ParsingErrorType::InvalidRegistor(name));
     };
     mir.set_bool("amux", false)?;
     mir.set_int("a", index)?;
@@ -226,19 +226,19 @@ fn check_reg_b<'a, 'b>(
     mir: &'b mut ControlSignalsLockable<'a>,
     op: &'b Captures<'a>,
     name: &'a str,
-) -> Result<(), ParsingError<'a>> {
+) -> Result<(), ParsingErrorType<'a>> {
     let Some(name) = op.name(name) else {
-        return Err(ParsingError::InvalidExpression(op.get(0).map_or("", |m| m.as_str())));
+        return Err(ParsingErrorType::InvalidExpression(op.get(0).map_or("", |m| m.as_str())));
     };
     let name = name.as_str();
     if name == "mbr" || name == "mar" {
-        return Err(ParsingError::IlegalRegistor(
+        return Err(ParsingErrorType::IlegalRegistor(
             name,
             op.get(0).unwrap().as_str(),
         ));
     }
     let Some(index) = get_registor_index(name) else {
-        return Err(ParsingError::InvalidRegistor(name));
+        return Err(ParsingErrorType::InvalidRegistor(name));
     };
     // Caso B esteja ocupado e A tenha o valor desejado em B, verifica se há possibilidade de
     // trocar A e B sem causar problemas, mas só se mar vai ser setado e !amux
@@ -247,64 +247,10 @@ fn check_reg_b<'a, 'b>(
             mir.set_int_force("b", mir.get_int("a").unwrap_or(0));
             Ok(0)
         } else {
-            Err(ParsingError::SignalAlreadyDefined(err))
+            Err(ParsingErrorType::SignalAlreadyDefined(err))
         }
     })?;
     Ok(())
-}
-
-#[derive(Debug)]
-pub enum ParsingError<'a> {
-    SignalAlreadyDefined(ValueAlreadySet<'a>),
-    InvalidExpression(&'a str),
-    InvalidRegistor(&'a str),
-    InvalidCondition(&'a str),
-    ImpossiblePath(&'a str, &'a str),
-    IlegalRegistor(&'a str, &'a str),
-    UnrecognizedSymbol(&'a str),
-    MicroinstructionOverflow,
-}
-
-impl<'a> Display for ParsingError<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::SignalAlreadyDefined(err) => {
-                let (before, after) = match err.conflict {
-                    ConflictType::Bool { before, after } => (before.to_string(), after.to_string()),
-                    ConflictType::Int { before, after } => (before.to_string(), after.to_string()),
-                    ConflictType::Str { before, after } => (before.to_string(), after.to_string()),
-                };
-                write!(
-                    f,
-                    "Valores conflitantes para o registrador {} (antes: {}, depois: {})",
-                    err.name, before, after,
-                )
-            }
-            Self::InvalidExpression(expr) => write!(f, "Expressão inválida: \"{}\"", expr),
-            Self::InvalidRegistor(name) => write!(f, "Registrador inválido: {}", name),
-            Self::InvalidCondition(cond) => write!(f, "Condição de if inválida: {}", cond),
-            Self::ImpossiblePath(dest, expr) => write!(
-                f,
-                "Não é possível levar a expressão \"{}\" para o registrador {}",
-                expr, dest
-            ),
-            Self::IlegalRegistor(reg, expr) => write!(
-                f,
-                "Não é possível colocar o registrador {} no barramento indicado na expressão \"{}\"",
-                reg, expr
-            ),
-            Self::UnrecognizedSymbol(symb) => write!(f, "Símbolo \"{}\" não foi reconhecido", symb),
-            Self::MicroinstructionOverflow => write!(f, "Microinstruções demais para a memória"),
-        }
-    }
-}
-
-impl<'a> Error for ParsingError<'a> {}
-
-impl<'a> From<ValueAlreadySet<'a>> for ParsingError<'a> {
-    fn from(value: ValueAlreadySet<'a>) -> Self {
-        Self::SignalAlreadyDefined(value)
-    }
 }
 
 static LINE_NAME_R: LazyLock<Regex> =

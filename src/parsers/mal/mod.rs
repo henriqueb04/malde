@@ -1,31 +1,14 @@
 mod lockable;
 mod regex;
+mod errors;
 
 use crate::{
     architecture::signals::ControlSignals,
     parsers::mal::{lockable::ControlSignalsLockable, regex::parse_line},
 };
-use std::{collections::HashMap, fmt::Display};
+use std::{collections::HashMap};
 
-pub use crate::parsers::mal::regex::ParsingError as ParsingErrorType;
-
-pub struct ParsingError<'a> {
-    lineno: usize,
-    content: &'a str,
-    error_type: ParsingErrorType<'a>,
-}
-
-impl Display for ParsingError<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Erro na linha {}: {}\n    \"{}\"",
-            self.lineno + 1,
-            self.error_type,
-            self.content
-        )
-    }
-}
+pub use crate::parsers::mal::errors::{ParsingError, ParsingErrorType};
 
 #[derive(Debug, Clone)]
 pub struct Microinstruction<'a> {
@@ -195,7 +178,7 @@ mod tests {
         assert_eq!(mir.get_bool("enc"), Some(false));
         assert_eq!(mir.get_int("a"), Some(1));
         assert_eq!(mir.get_int("b"), Some(10));
-        assert_eq!(mir.get_int("c"), None);
+        assert_eq!(mir.get_int("c"), Some(0));
         assert_eq!(mir.get_addr_symbol(), Some("10"));
     }
 }

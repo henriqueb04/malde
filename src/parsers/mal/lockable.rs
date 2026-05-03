@@ -1,26 +1,14 @@
+use std::collections::HashMap;
 use crate::architecture::signals::{
     CONTROL_SIGNAL_NAMES_B, CONTROL_SIGNAL_NAMES_U, ControlSignals,
 };
-use std::collections::HashMap;
+use crate::parsers::mal::errors::{ValueAlreadySet, ValueConflictType};
 
 #[derive(Debug, Clone)]
 pub struct ControlSignalsLockable<'a> {
     int_map: HashMap<&'static str, Option<u8>>,
     bool_map: HashMap<&'static str, Option<bool>>,
     addr_symbol: Option<&'a str>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ConflictType<'a> {
-    Bool{ before: bool, after: bool },
-    Int{ before: u8, after: u8 },
-    Str{ before: &'a str, after: &'a str },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ValueAlreadySet<'a> {
-    pub name: &'static str,
-    pub conflict: ConflictType<'a>,
 }
 
 impl<'a> ControlSignalsLockable<'a> {
@@ -67,7 +55,7 @@ impl<'a> ControlSignalsLockable<'a> {
         {
             return Err(ValueAlreadySet {
                 name,
-                conflict: ConflictType::Bool { before: *a, after: v },
+                conflict: ValueConflictType::Bool { before: *a, after: v },
             });
         }
         self.bool_map.insert(name, Some(v));
@@ -83,7 +71,7 @@ impl<'a> ControlSignalsLockable<'a> {
         {
             return Err(ValueAlreadySet {
                 name,
-                conflict: ConflictType::Int { before: *a, after: v },
+                conflict: ValueConflictType::Int { before: *a, after: v },
             });
         }
         self.int_map.insert(name, Some(v));
@@ -98,7 +86,7 @@ impl<'a> ControlSignalsLockable<'a> {
         if let Some(a) = self.addr_symbol {
             return Err(ValueAlreadySet {
                 name: "addr",
-                conflict: ConflictType::Str { before: a, after: symbol },
+                conflict: ValueConflictType::Str { before: a, after: symbol },
             });
         }
         self.addr_symbol = Some(symbol);
@@ -164,6 +152,7 @@ impl<'a> From<ControlSignalsLockable<'a>> for ControlSignals {
     }
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,14 +170,14 @@ mod tests {
                 name: "b",
                 // before: 2,
                 // now: 3,
-                conflict: ConflictType::Int { before: 2, after: 3 },
+                conflict: ValueConflictType::Int { before: 2, after: 3 },
             })
         );
         assert_eq!(
             s.set_int("a", 2),
             Err(ValueAlreadySet {
                 name: "a",
-                conflict: ConflictType::Int { before: 1, after: 2 },
+                conflict: ValueConflictType::Int { before: 1, after: 2 },
             })
         );
         assert_eq!(s.set_int("b", 2), Ok(2));
