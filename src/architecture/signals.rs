@@ -1,25 +1,39 @@
 #[inline]
-fn slice_bits(bits: &u32, start: usize, end: usize) -> u8 {
+fn slice_bits(bits: &u64, start: usize, end: usize) -> u8 {
     let len = end - start;
-    let mask: u32 = (1 << len) - 1;
-    ((bits >> (32 - end)) & mask) as u8
+    let mask: u64 = (1 << len) - 1;
+    ((bits >> (64 - end)) & mask) as u8
 }
 
 #[inline]
-fn get_bit(bits: &u32, i: u8) -> bool {
-    ((bits >> (31 - i)) & 1) == 1
-}
-
-#[inline]
-fn position_bits(n: &u8, start: usize, end: usize) -> u32 {
+fn slice_bits_u16(bits: &u64, start: usize, end: usize) -> u16 {
     let len = end - start;
-    let mask: u32 = (1 << len) - 1;
-    ((*n as u32) & mask).overflowing_shl(32 - end as u32).0
+    let mask: u64 = (1 << len) - 1;
+    ((bits >> (64 - end)) & mask) as u16
 }
 
 #[inline]
-fn position_bit(b: &bool, i: u8) -> u32 {
-    (*b as u32) << 31 - i
+fn get_bit(bits: &u64, i: u8) -> bool {
+    ((bits >> (63 - i)) & 1) == 1
+}
+
+#[inline]
+fn position_bits(n: &u8, start: usize, end: usize) -> u64 {
+    let len = end - start;
+    let mask: u64 = (1 << len) - 1;
+    ((*n as u64) & mask).wrapping_shl(64 - end as u32)
+}
+
+#[inline]
+fn position_bits_u16(n: &u16, start: usize, end: usize) -> u64 {
+    let len = end - start;
+    let mask: u64 = (1 << len) - 1;
+    ((*n as u64) & mask).wrapping_shl(64 - end as u32)
+}
+
+#[inline]
+fn position_bit(b: &bool, i: u8) -> u64 {
+    (*b as u64) << (63 - i)
 }
 
 pub struct ALUSignals {
@@ -41,19 +55,19 @@ pub struct ControlSignals {
     pub c: u8,
     pub b: u8,
     pub a: u8,
-    pub addr: u8,
+    pub addr: u16,
 }
 
-pub const CONTROL_SIGNAL_NAMES_B: [&'static str; 6] = [
+pub const CONTROL_SIGNAL_NAMES_B: [&str; 6] = [
     "amux", "mbr", "mar", "rd", "wr", "enc",
 ];
-pub const CONTROL_SIGNAL_NAMES_U: [&'static str; 7] = [
-    "cond", "alu", "sh", "c", "b", "a", "addr",
+pub const CONTROL_SIGNAL_NAMES_U: [&str; 6] = [
+    "cond", "alu", "sh", "c", "b", "a", // "addr",
 ];
 
-impl From<&u32> for ControlSignals {
+impl From<&u64> for ControlSignals {
     #[rustfmt::skip]
-    fn from(n: &u32) -> Self {
+    fn from(n: &u64) -> Self {
         ControlSignals {
             amux: get_bit(n, 0),
             cond: slice_bits(n, 1, 3),
@@ -67,13 +81,13 @@ impl From<&u32> for ControlSignals {
             c   : slice_bits(n, 12, 16),
             b   : slice_bits(n, 16, 20),
             a   : slice_bits(n, 20, 24),
-            addr: slice_bits(n, 24, 32),
+            addr: slice_bits_u16(n, 24, 32),
         }
     }
 }
 
-impl From<ControlSignals> for u32 {
-    fn from(item: ControlSignals) -> u32 {
+impl From<ControlSignals> for u64 {
+    fn from(item: ControlSignals) -> u64 {
         position_bit(&item.amux, 0) |
         position_bits(&item.cond, 1, 3) |
         position_bits(&item.alu, 3, 5) |
@@ -86,7 +100,7 @@ impl From<ControlSignals> for u32 {
         position_bits(&item.c, 12, 16) |
         position_bits(&item.b, 16, 20) |
         position_bits(&item.a, 20, 24) |
-        position_bits(&item.addr, 24, 32)
+        position_bits_u16(&item.addr, 24, 32)
     }
 }
 
@@ -112,8 +126,8 @@ mod tests {
             a: 0b1111,
             addr: 0b10101001,
         };
-        let n: u32 = sigs.clone().into();
-        let expected = 0b1_01_10_00_10100_1001_0110_1111_10101001;
+        let n: u64 = sigs.clone().into();
+        let expected = 0b1_01_10_00_10100_1001_0110_1111_10101001_00000000000000000000000000000000;
         println!("expected: {:b}", expected);
         println!("result  : {:b}", n);
         assert_eq!(n, expected);
@@ -134,8 +148,8 @@ mod tests {
             a: 0b0001,
             addr: 0b01111110,
         };
-        let n: u32 = sigs.clone().into();
-        let expected = 0b0_11_01_11_01101_0101_0000_0001_01111110;
+        let n: u64 = sigs.clone().into();
+        let expected = 0b0_11_01_11_01101_0101_0000_0001_01111110_00000000000000000000000000000000;
         println!("expected: {:b}", expected);
         println!("result  : {:b}", n);
         assert_eq!(n, expected);

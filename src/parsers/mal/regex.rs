@@ -32,7 +32,7 @@ pub fn parse_line<'a>(
     let _ = mir.set_int("c", 0);
     let _ = mir.set_int("b", 0);
     let _ = mir.set_int("a", 0);
-    let _ = mir.set_int("addr", 0);
+    // let _ = mir.set_int("addr", 0);
     Some(Ok((line_name, mir)))
 }
 
@@ -164,29 +164,29 @@ fn parse_expr<'a, 'b>(
     if op.name("add").is_some() {
         // Soma
         // A
-        check_reg_a(mir, &op, "sA")?;
+        set_reg_a(mir, &op, "sA")?;
         // B
-        check_reg_b(mir, &op, "sB")?;
+        set_reg_b(mir, &op, "sB")?;
         // ALU
         mir.set_int("alu", 0)?;
     } else if op.name("band").is_some() {
         // Bitwise And
         // A
-        check_reg_a(mir, &op, "aA")?;
+        set_reg_a(mir, &op, "aA")?;
         // B
-        check_reg_b(mir, &op, "aB")?;
+        set_reg_b(mir, &op, "aB")?;
         // ALU
         mir.set_int("alu", 1)?;
     } else if op.name("inv").is_some() {
         // Not
         // A
-        check_reg_a(mir, &op, "iA")?;
+        set_reg_a(mir, &op, "iA")?;
         // ALU
         mir.set_int("alu", 3)?;
     } else if transparency.is_some() {
         // Transparência
         // A
-        check_reg_a(mir, &op, "transparency")?;
+        set_reg_a(mir, &op, "transparency")?;
         mir.set_int("alu", 2)?;
     } else {
         return Err(ParsingErrorType::InvalidExpression(expr));
@@ -194,7 +194,7 @@ fn parse_expr<'a, 'b>(
     Ok(mir)
 }
 
-fn check_reg_a<'a, 'b>(
+fn set_reg_a<'a, 'b>(
     mir: &'b mut ControlSignalsLockable<'a>,
     op: &'b Captures<'a>,
     name: &'a str,
@@ -222,7 +222,7 @@ fn check_reg_a<'a, 'b>(
     Ok(())
 }
 
-fn check_reg_b<'a, 'b>(
+fn set_reg_b<'a, 'b>(
     mir: &'b mut ControlSignalsLockable<'a>,
     op: &'b Captures<'a>,
     name: &'a str,

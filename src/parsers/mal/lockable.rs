@@ -8,6 +8,7 @@ use crate::parsers::mal::errors::{ValueAlreadySet, ValueConflictType};
 pub struct ControlSignalsLockable<'a> {
     int_map: HashMap<&'static str, Option<u8>>,
     bool_map: HashMap<&'static str, Option<bool>>,
+    addr_int: u16,
     addr_symbol: Option<&'a str>,
 }
 
@@ -24,6 +25,7 @@ impl<'a> ControlSignalsLockable<'a> {
         ControlSignalsLockable {
             int_map,
             bool_map,
+            addr_int: 0,
             addr_symbol: None,
         }
     }
@@ -93,8 +95,11 @@ impl<'a> ControlSignalsLockable<'a> {
         Ok(symbol)
     }
 
-    pub fn set_addr_force(&mut self, value: u8) {
-        self.int_map.insert("addr", Some(value));
+    pub fn set_addr(&mut self, value: u16) {
+        self.addr_int = value;
+    }
+    pub fn get_addr(&self) -> u16 {
+        self.addr_int
     }
 
     pub fn swap_a_b(&mut self) {
@@ -147,7 +152,7 @@ impl<'a> From<ControlSignalsLockable<'a>> for ControlSignals {
             c: item.get_int("c").unwrap_or(0),
             b: item.get_int("b").unwrap_or(0),
             a: item.get_int("a").unwrap_or(0),
-            addr: item.get_int("addr").unwrap_or(0),
+            addr: item.get_addr(),
         }
     }
 }
@@ -168,8 +173,6 @@ mod tests {
             s.set_int("b", 3),
             Err(ValueAlreadySet {
                 name: "b",
-                // before: 2,
-                // now: 3,
                 conflict: ValueConflictType::Int { before: 2, after: 3 },
             })
         );

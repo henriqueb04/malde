@@ -17,7 +17,7 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub fn new(microinstructions: Vec<u32>) -> Self {
+    pub fn new(microinstructions: Vec<u64>) -> Self {
         Cpu {
             memory: Memory::new(),
             control_unit: ControlUnit::new(Sequencer::new(microinstructions)),
@@ -37,12 +37,12 @@ impl Cpu {
         self.control_unit.advance(&self.datapath.alu_sigs)
     }
 
-    pub fn advance_macroinstruction(&mut self) {
-        let mut mpc = 1; // temporary value
-        while mpc != 0 {
-            (mpc, _) = self.advance_microinstruction();
-        }
-    }
+    // pub fn advance_macroinstruction(&mut self) {
+    //     let mut mpc = 1; // temporary value
+    //     while mpc != 0 {
+    //         (mpc, _) = self.advance_microinstruction();
+    //     }
+    // }
 
     pub fn zero_out_memory(&mut self) {
         self.memory.clear();
@@ -72,7 +72,7 @@ impl Cpu {
         self.control_unit.sequencer.len > 0
     }
 
-    pub fn load_microinstructions(&mut self, microinstructions: Vec<u32>) {
+    pub fn load_microinstructions(&mut self, microinstructions: Vec<u64>) {
         self.control_unit.sequencer = Sequencer::new(microinstructions);
     }
 

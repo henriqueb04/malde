@@ -69,7 +69,7 @@ impl<'a> MALParser<'a> {
         for mic in self.instructions.iter_mut() {
             if let Some(symb) = mic.mir.get_addr_symbol() {
                 if let Some(addr) = self.symbol_table.get(symb) {
-                    mic.mir.set_addr_force(*addr as u8);
+                    mic.mir.set_addr(*addr as u16);
                 } else {
                     return Err(ParsingError {
                         lineno: mic.lineno,

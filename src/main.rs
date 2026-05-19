@@ -300,7 +300,7 @@ impl MyApp {
         match mal_parser.parse_instructions() {
             Ok((micro_mem, microinstructions)) => {
                 self.cpu.load_microinstructions(
-                    micro_mem.iter().map(|v| u32::from(v.clone())).collect(),
+                    micro_mem.iter().map(|v| v.clone().into()).collect(),
                 );
                 self.microinstructions = microinstructions
                     .iter()
