@@ -20,7 +20,7 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
     eframe::run_native(
-        "Native file dialogs and drag-and-drop files",
+        "MALDE: Simulador de linguagem MAL",
         options,
         Box::new(|_cc| Ok(Box::new(MyApp::new()))),
     )
@@ -50,22 +50,19 @@ impl eframe::App for MyApp {
             .min_size(350.0)
             .show_inside(ui, |ui| {
                 if self.cpu.is_ready() {
-                    if ui.button("Próxima microinstrução").clicked() {
-                        self.advance_microinstruction();
-                        self.mir = Some(self.cpu.get_control_signals().clone());
-                    }
-                    if ui.button("Resetar").clicked() {
-                        self.reset_cpu();
-                    }
+                    ui.horizontal(|ui| {
+                        if ui.button("Próxima microinstrução").clicked() {
+                            self.advance_microinstruction();
+                            self.mir = Some(self.cpu.get_control_signals().clone());
+                        }
+                        if ui.button("Resetar").clicked() {
+                            self.reset_cpu();
+                        }
+                    });
                 }
+                ui.separator();
                 if let Some(mir) = self.mir.as_ref() {
-                    ui.strong("Microinstrução atual:");
-                    ui.monospace(
-                        self.microinstructions
-                            .get(self.cur_mpc)
-                            .map(|s| s.as_str())
-                            .unwrap_or(""),
-                    );
+                    ui.set_min_width(50.0);
                     ui.strong("Registrador de Microinstrução:");
                     const MIR_NAMES: [&str; 13] = [
                         "amux", "cond", "alu", "sh", "mbr", "mar", "rd", "wr", "enc", "c", "b",
@@ -87,14 +84,14 @@ impl eframe::App for MyApp {
                         mir.addr as i8,
                     ];
                     let mic_table = TableBuilder::new(ui)
+                        .auto_shrink([true; 2])
                         .id_salt("mic_table")
                         .striped(true)
                         .resizable(false)
-                        .cell_layout(egui::Layout::centered_and_justified(
-                            egui::Direction::BottomUp,
-                        ))
-                        .column(Column::remainder())
-                        .column(Column::remainder())
+                        .vscroll(false)
+                        .cell_layout(egui::Layout::top_down(egui::Align::Center))
+                        .column(Column::auto())
+                        .column(Column::remainder().clip(true).resizable(true))
                         .min_scrolled_height(0.0);
                     mic_table
                         .header(text_height, |mut header| {
@@ -119,23 +116,22 @@ impl eframe::App for MyApp {
                     ui.strong("Registradores:");
                     let (mar, mbr, registors) = self.cpu.get_registors();
                     let reg_table = TableBuilder::new(ui)
+                        .auto_shrink([true; 2])
                         .id_salt("reg_table")
                         .striped(true)
                         .resizable(false)
-                        .cell_layout(egui::Layout::centered_and_justified(
-                            egui::Direction::TopDown,
-                        ))
+                        .cell_layout(egui::Layout::top_down(egui::Align::Center))
                         .column(Column::auto())
                         .column(Column::auto())
-                        .column(Column::remainder())
+                        .column(Column::remainder().clip(true).resizable(true))
                         .min_scrolled_height(0.0);
                     reg_table
                         .header(text_height, |mut header| {
                             header.col(|ui| {
-                                ui.strong("Registrador");
+                                ui.strong("Número");
                             });
                             header.col(|ui| {
-                                ui.strong("Número");
+                                ui.strong("Registrador");
                             });
                             header.col(|ui| {
                                 ui.strong("Valor");
@@ -144,10 +140,10 @@ impl eframe::App for MyApp {
                         .body(|mut body| {
                             body.row(text_height, |mut row| {
                                 row.col(|ui| {
-                                    ui.label("mar");
+                                    ui.label("");
                                 });
                                 row.col(|ui| {
-                                    ui.label("");
+                                    ui.label("mar");
                                 });
                                 row.col(|ui| {
                                     ui.label(mar.to_string());
@@ -155,10 +151,10 @@ impl eframe::App for MyApp {
                             });
                             body.row(text_height, |mut row| {
                                 row.col(|ui| {
-                                    ui.label("mbr");
+                                    ui.label("");
                                 });
                                 row.col(|ui| {
-                                    ui.label("");
+                                    ui.label("mbr");
                                 });
                                 row.col(|ui| {
                                     ui.label(mbr.to_string());
@@ -168,10 +164,10 @@ impl eframe::App for MyApp {
                                 let row_index = row.index();
                                 let reg_name = REGISTOR_NAMES.get(row_index).map_or("", |v| v);
                                 row.col(|ui| {
-                                    ui.label(reg_name);
+                                    ui.label(row_index.to_string());
                                 });
                                 row.col(|ui| {
-                                    ui.label(row_index.to_string());
+                                    ui.label(reg_name);
                                 });
                                 row.col(|ui| {
                                     if reg_name == "ir"
@@ -190,7 +186,7 @@ impl eframe::App for MyApp {
             });
         egui::Panel::bottom("bottom_panel")
             .resizable(true)
-            .min_size(500.0)
+            .default_size(500.0)
             .show_inside(ui, |ui| {
                 self.show_mem_table(ui);
             });
@@ -232,7 +228,7 @@ impl eframe::App for MyApp {
                     .striped(true)
                     .resizable(false)
                     .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                    .column(Column::remainder())
+                    .column(Column::remainder().clip(true))
                     .min_scrolled_height(0.0)
                     .max_scroll_height(available_height);
                 if let Some(mpc) = self.scroll_mpc.take() {
@@ -364,7 +360,7 @@ impl MyApp {
             .resizable(false)
             .cell_layout(egui::Layout::right_to_left(egui::Align::Center))
             .column(Column::auto().at_least(100.0).clip(true).resizable(true))
-            .columns(Column::remainder(), n_cols)
+            .columns(Column::remainder().clip(true), n_cols)
             .min_scrolled_height(0.0)
             .max_scroll_height(available_height);
         table
