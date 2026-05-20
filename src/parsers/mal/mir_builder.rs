@@ -5,14 +5,14 @@ use crate::architecture::signals::{
 use crate::parsers::mal::errors::{ValueAlreadySet, ValueConflictType};
 
 #[derive(Debug, Clone)]
-pub struct ControlSignalsLockable<'a> {
+pub struct ControlSignalsBuilder<'a> {
     int_map: HashMap<&'static str, Option<u8>>,
     bool_map: HashMap<&'static str, Option<bool>>,
     addr_int: u16,
     addr_symbol: Option<&'a str>,
 }
 
-impl<'a> ControlSignalsLockable<'a> {
+impl<'a> ControlSignalsBuilder<'a> {
     pub fn new() -> Self {
         let mut int_map = HashMap::new();
         let mut bool_map = HashMap::new();
@@ -22,7 +22,7 @@ impl<'a> ControlSignalsLockable<'a> {
         for name in CONTROL_SIGNAL_NAMES_U {
             int_map.insert(name, None);
         }
-        ControlSignalsLockable {
+        ControlSignalsBuilder {
             int_map,
             bool_map,
             addr_int: 0,
@@ -135,24 +135,38 @@ impl<'a> ControlSignalsLockable<'a> {
         }
         true
     }
-}
 
-impl<'a> From<ControlSignalsLockable<'a>> for ControlSignals {
-    fn from(item: ControlSignalsLockable) -> ControlSignals {
+    pub fn set_defaults(&mut self) {
+        // Valores padrão, são ignorados se já estiverem presentes
+        let _ = self.set_bool("amux", false);
+        let _ = self.set_int("cond", 0);
+        let _ = self.set_int("alu", 0);
+        let _ = self.set_int("sh", 0);
+        let _ = self.set_bool("mbr", false);
+        let _ = self.set_bool("mar", false);
+        let _ = self.set_bool("rd", false);
+        let _ = self.set_bool("wr", false);
+        let _ = self.set_bool("enc", false);
+        let _ = self.set_int("c", 0);
+        let _ = self.set_int("b", 0);
+        let _ = self.set_int("a", 0);
+    }
+
+    pub fn build(self) -> ControlSignals {
         ControlSignals {
-            amux: item.get_bool("amux").unwrap_or(false),
-            cond: item.get_int("cond").unwrap_or(0),
-            alu: item.get_int("alu").unwrap_or(0),
-            sh: item.get_int("sh").unwrap_or(0),
-            mbr: item.get_bool("mbr").unwrap_or(false),
-            mar: item.get_bool("mar").unwrap_or(false),
-            rd: item.get_bool("rd").unwrap_or(false),
-            wr: item.get_bool("wr").unwrap_or(false),
-            enc: item.get_bool("enc").unwrap_or(false),
-            c: item.get_int("c").unwrap_or(0),
-            b: item.get_int("b").unwrap_or(0),
-            a: item.get_int("a").unwrap_or(0),
-            addr: item.get_addr(),
+            amux: self.get_bool("amux").unwrap_or(false),
+            cond: self.get_int("cond").unwrap_or(0),
+            alu: self.get_int("alu").unwrap_or(0),
+            sh: self.get_int("sh").unwrap_or(0),
+            mbr: self.get_bool("mbr").unwrap_or(false),
+            mar: self.get_bool("mar").unwrap_or(false),
+            rd: self.get_bool("rd").unwrap_or(false),
+            wr: self.get_bool("wr").unwrap_or(false),
+            enc: self.get_bool("enc").unwrap_or(false),
+            c: self.get_int("c").unwrap_or(0),
+            b: self.get_int("b").unwrap_or(0),
+            a: self.get_int("a").unwrap_or(0),
+            addr: self.get_addr(),
         }
     }
 }
@@ -164,7 +178,7 @@ mod tests {
 
     #[test]
     fn lockable_errors() {
-        let mut s = ControlSignalsLockable::new();
+        let mut s = ControlSignalsBuilder::new();
         assert_eq!(s.set_int("a", 1), Ok(1));
         assert_eq!(s.set_int("b", 2), Ok(2));
         assert_ne!(s.set_int("b", 3), Ok(2));

@@ -1,13 +1,13 @@
 use regex::{Captures, Regex};
 use std::sync::LazyLock;
-use crate::parsers::mal::lockable::ControlSignalsLockable;
+use crate::parsers::mal::mir_builder::ControlSignalsBuilder;
 use crate::architecture::datapath::get_registor_index;
 use crate::parsers::mal::errors::ParsingErrorType;
 
 pub fn parse_line<'a>(
     line: &'a str,
-) -> Option<Result<(&'a str, ControlSignalsLockable<'a>), ParsingErrorType<'a>>> {
-    let mut mir = ControlSignalsLockable::new();
+) -> Option<Result<(&'a str, ControlSignalsBuilder<'a>), ParsingErrorType<'a>>> {
+    let mut mir = ControlSignalsBuilder::new();
     let line_name_capture = LINE_NAME_R.captures(line)?;
     let line_name = line_name_capture.name("name")?.as_str();
     let line_content = line_name_capture.name("content")?.as_str();
@@ -19,27 +19,14 @@ pub fn parse_line<'a>(
             return Some(Err(err));
         }
     }
-    // Valores padrão, são ignorados se já estiverem presentes
-    let _ = mir.set_bool("amux", false);
-    let _ = mir.set_int("cond", 0);
-    let _ = mir.set_int("alu", 0);
-    let _ = mir.set_int("sh", 0);
-    let _ = mir.set_bool("mbr", false);
-    let _ = mir.set_bool("mar", false);
-    let _ = mir.set_bool("rd", false);
-    let _ = mir.set_bool("wr", false);
-    let _ = mir.set_bool("enc", false);
-    let _ = mir.set_int("c", 0);
-    let _ = mir.set_int("b", 0);
-    let _ = mir.set_int("a", 0);
-    // let _ = mir.set_int("addr", 0);
+    mir.set_defaults();
     Some(Ok((line_name, mir)))
 }
 
 fn parse_expr<'a, 'b>(
     expr: &'a str,
-    mir: &'b mut ControlSignalsLockable<'a>,
-) -> Result<&'b ControlSignalsLockable<'a>, ParsingErrorType<'a>> {
+    mir: &'b mut ControlSignalsBuilder<'a>,
+) -> Result<&'b ControlSignalsBuilder<'a>, ParsingErrorType<'a>> {
     // Procura rd ou wr
     if RD_R.captures(expr).is_some() {
         mir.set_bool("rd", true)?;
@@ -195,7 +182,7 @@ fn parse_expr<'a, 'b>(
 }
 
 fn set_reg_a<'a, 'b>(
-    mir: &'b mut ControlSignalsLockable<'a>,
+    mir: &'b mut ControlSignalsBuilder<'a>,
     op: &'b Captures<'a>,
     name: &'a str,
 ) -> Result<(), ParsingErrorType<'a>>
@@ -223,7 +210,7 @@ fn set_reg_a<'a, 'b>(
 }
 
 fn set_reg_b<'a, 'b>(
-    mir: &'b mut ControlSignalsLockable<'a>,
+    mir: &'b mut ControlSignalsBuilder<'a>,
     op: &'b Captures<'a>,
     name: &'a str,
 ) -> Result<(), ParsingErrorType<'a>> {

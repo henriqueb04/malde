@@ -1,10 +1,10 @@
-mod lockable;
+mod mir_builder;
 mod regex;
 mod errors;
 
 use crate::{
     architecture::signals::ControlSignals,
-    parsers::mal::{lockable::ControlSignalsLockable, regex::parse_line},
+    parsers::mal::{mir_builder::ControlSignalsBuilder, regex::parse_line},
 };
 use std::{collections::HashMap};
 
@@ -14,7 +14,7 @@ pub use crate::parsers::mal::errors::{ParsingError, ParsingErrorType};
 pub struct Microinstruction<'a> {
     pub lineno: usize,
     pub content: &'a str,
-    pub mir: ControlSignalsLockable<'a>,
+    pub mir: ControlSignalsBuilder<'a>,
 }
 
 pub struct MALParser<'a> {
@@ -90,7 +90,7 @@ impl<'a> MALParser<'a> {
         Ok((
             self.instructions
                 .iter()
-                .map(|l| ControlSignals::from(l.mir.clone()))
+                .map(|l| l.mir.clone().build())
                 .collect(),
             self.instructions.clone(),
         ))
