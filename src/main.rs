@@ -280,7 +280,7 @@ impl MyApp {
         MyApp {
             // FIXME: retirar caminhos fixos
             macroprogram: Some(String::from("/home/henrique/code/mac1/teste2.asm")),
-            microprogram: Some(String::from("/home/henrique/code/mac1/teste.mal")),
+            microprogram: Some(String::from("/home/henrique/code/mac1/malde.mal")),
             msg_modal_open: false,
             msg_modal_text: String::new(),
             cpu: Cpu::new(Vec::new()),
@@ -296,11 +296,11 @@ impl MyApp {
             self.show_error_modal(String::from("Falha ao ler arquivo"));
             return;
         };
-        let mut mal_parser = mal::MALParser::new(&contents);
-        match mal_parser.parse_instructions() {
-            Ok((micro_mem, microinstructions)) => {
+        let mut mal_parser = mal::MALParser::new();
+        match mal_parser.parse_instructions(&contents) {
+            Ok(microinstructions) => {
                 self.cpu.load_microinstructions(
-                    micro_mem.iter().map(|v| v.clone().into()).collect(),
+                    microinstructions.iter().map(|v| v.mir.clone().into()).collect(),
                 );
                 self.microinstructions = microinstructions
                     .iter()

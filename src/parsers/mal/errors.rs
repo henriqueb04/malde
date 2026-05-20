@@ -14,6 +14,7 @@ pub struct ValueAlreadySet<'a> {
     pub conflict: ValueConflictType<'a>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsingError<'a> {
     pub lineno: usize,
     pub content: &'a str,
@@ -32,7 +33,7 @@ impl Display for ParsingError<'_> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParsingErrorType<'a> {
     SignalAlreadyDefined(ValueAlreadySet<'a>),
     InvalidExpression(&'a str),

@@ -1,50 +1,64 @@
+mod errors;
 mod mir_builder;
 mod regex;
-mod errors;
 
 use crate::{
     architecture::signals::ControlSignals,
     parsers::mal::{mir_builder::ControlSignalsBuilder, regex::parse_line},
 };
-use std::{collections::HashMap};
+use std::collections::HashMap;
 
 pub use crate::parsers::mal::errors::{ParsingError, ParsingErrorType};
 
 #[derive(Debug, Clone)]
-pub struct Microinstruction<'a> {
+pub struct MicroinstructionBuilder<'a> {
     pub lineno: usize,
     pub content: &'a str,
     pub mir: ControlSignalsBuilder<'a>,
 }
 
-pub struct MALParser<'a> {
-    source: &'a str,
-    symbol_table: HashMap<&'a str, usize>,
-    instructions: Vec<Microinstruction<'a>>,
+#[derive(Debug, Clone)]
+pub struct Microinstruction<'a> {
+    pub lineno: usize,
+    pub content: &'a str,
+    pub mir: ControlSignals,
 }
 
-impl<'a> MALParser<'a> {
-    pub fn new(source: &'a str) -> Self {
-        MALParser {
-            source,
-            symbol_table: HashMap::new(),
-            instructions: Vec::new(),
+impl<'a> From<MicroinstructionBuilder<'a>> for Microinstruction<'a> {
+    fn from(value: MicroinstructionBuilder<'a>) -> Self {
+        Microinstruction {
+            lineno: value.lineno,
+            content: value.content,
+            mir: value.mir.build(),
         }
     }
+}
 
-    pub fn map_instructions(&mut self) -> Result<(), ParsingError<'a>> {
-        for (lineno, content) in self.source.split('\n').enumerate() {
+pub struct MALParser {}
+
+impl MALParser {
+    pub fn new() -> Self {
+        MALParser {}
+    }
+
+    fn map_instructions<'a>(
+        &self,
+        source: &'a str,
+    ) -> Result<(Vec<MicroinstructionBuilder<'a>>, HashMap<&'a str, usize>), ParsingError<'a>> {
+        let mut instructions = Vec::new();
+        let mut symbol_table = HashMap::new();
+        for (lineno, content) in source.split('\n').enumerate() {
             match parse_line(content) {
                 Some(Ok((name, mir))) => {
-                    let mic = Microinstruction {
+                    let mic = MicroinstructionBuilder {
                         lineno,
                         content,
                         mir,
                     };
-                    self.instructions.push(mic);
-                    self.symbol_table.insert(name, self.instructions.len() - 1);
+                    instructions.push(mic);
+                    symbol_table.insert(name, instructions.len() - 1);
                     // O limite da quantidade de instruções é 8 bits
-                    if self.instructions.len() > 0xff {
+                    if instructions.len() > 0xff {
                         return Err(ParsingError {
                             lineno,
                             content,
@@ -62,13 +76,17 @@ impl<'a> MALParser<'a> {
                 None => continue,
             };
         }
-        Ok(())
+        Ok((instructions, symbol_table))
     }
 
-    pub fn insert_addresses(&mut self) -> Result<(), ParsingError<'a>> {
-        for mic in self.instructions.iter_mut() {
+    fn insert_addresses<'a>(
+        &self,
+        instructions: &mut Vec<MicroinstructionBuilder<'a>>,
+        symbol_table: HashMap<&'a str, usize>,
+    ) -> Result<(), ParsingError<'a>> {
+        for mic in instructions.iter_mut() {
             if let Some(symb) = mic.mir.get_addr_symbol() {
-                if let Some(addr) = self.symbol_table.get(symb) {
+                if let Some(addr) = symbol_table.get(symb) {
                     mic.mir.set_addr(*addr as u16);
                 } else {
                     return Err(ParsingError {
@@ -82,24 +100,23 @@ impl<'a> MALParser<'a> {
         Ok(())
     }
 
-    pub fn parse_instructions(
-        &mut self,
-    ) -> Result<(Vec<ControlSignals>, Vec<Microinstruction<'a>>), ParsingError<'a>> {
-        self.map_instructions()?;
-        self.insert_addresses()?;
-        Ok((
-            self.instructions
-                .iter()
-                .map(|l| l.mir.clone().build())
-                .collect(),
-            self.instructions.clone(),
-        ))
+    pub fn parse_instructions<'a>(
+        &self,
+        source: &'a str,
+    ) -> Result<Vec<Microinstruction<'a>>, ParsingError<'a>> {
+        let (mut instructions, symbol_table) = self.map_instructions(source)?;
+        self.insert_addresses(&mut instructions, symbol_table)?;
+        Ok(instructions
+            .into_iter()
+            .map(|l| l.into())
+            .collect::<Vec<Microinstruction>>())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::read_to_string;
 
     #[test]
     fn test_line_parse() {
@@ -180,5 +197,22 @@ mod tests {
         assert_eq!(mir.get_int("b"), Some(10));
         assert_eq!(mir.get_int("c"), Some(0));
         assert_eq!(mir.get_addr_symbol(), Some("10"));
+
+        assert!(parse_line("# teste: pc := pc + 1;").is_none());
+    }
+
+    #[test]
+    fn test_code_equivalence() {
+        let mp = MALParser::new();
+        let ml1: Vec<u64> = mp.parse_instructions(&read_to_string("/home/henrique/code/mac1/teste.mal").unwrap()).expect("").into_iter().map(|m| u64::from(m.mir)).collect();
+        let ml2: Vec<u64> = mp.parse_instructions(&read_to_string("/home/henrique/code/mac1/malde.mal").unwrap()).expect("").into_iter().map(|m| u64::from(m.mir)).collect();
+        for i in 0..ml1.len() {
+            if ml1[i] != ml2[i] {
+                println!("{}", i);
+                println!("Expected: {:064b}", ml1[i]);
+                println!("Got     : {:064b}", ml2[i]);
+            }
+        }
+        assert_eq!(ml1, ml2);
     }
 }

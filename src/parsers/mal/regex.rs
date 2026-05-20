@@ -241,7 +241,7 @@ fn set_reg_b<'a, 'b>(
 }
 
 static LINE_NAME_R: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^\s*(?:(?<name>[^:]+):)?\s*(?<content>.*)\s*(?://)?").unwrap());
+    LazyLock::new(|| Regex::new(r"^(?<line>\s*(?:(?<name>[^\d\w_-]+):)?\s*(?<content>[^#/]+))?\s*(?<comment>//|#)?").unwrap());
 static OUTTER_R: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*(?<dest>[\d\w_-]+)\s*:=\s*(?<operation>.+)\s*").unwrap());
 static OPERATION_R: LazyLock<Regex> = LazyLock::new(|| {
