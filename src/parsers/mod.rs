@@ -1,2 +1,2 @@
-pub mod mal;
 pub mod mac;
+pub mod mal;

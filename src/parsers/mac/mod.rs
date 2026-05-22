@@ -148,9 +148,7 @@ impl<'a> ASMParser<'a> {
                             });
                         }
                     }
-                    if data_symbols.contains_key(name)
-                        || instructions_symbols.contains_key(name)
-                    {
+                    if data_symbols.contains_key(name) || instructions_symbols.contains_key(name) {
                         return Err(ParsingError {
                             lineno,
                             content,
@@ -181,8 +179,7 @@ impl<'a> ASMParser<'a> {
                                 error_type: ParsingErrorType::DuplicatedIdentifier(symb),
                             });
                         }
-                        instructions_symbols
-                            .insert(symb, pre_instructions.len() - 1);
+                        instructions_symbols.insert(symb, pre_instructions.len() - 1);
                     }
                     symbs_waiting.clear();
                 }
@@ -235,11 +232,9 @@ impl<'a> ASMParser<'a> {
                 } else if let Some(bin) = self
                     .keyword_table
                     .get(symb)
-                    .map(|v| v.clone())
+                    .cloned()
                     .or(data_symbols.get(symb).map(|v| format!("{:b}", v)))
-                    .or(instructions_symbols
-                        .get(symb)
-                        .map(|v| format!("{:b}", v)))
+                    .or(instructions_symbols.get(symb).map(|v| format!("{:b}", v)))
                 {
                     let new_len = s.len() + bin.len();
                     if new_len > 16 {

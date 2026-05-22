@@ -237,8 +237,7 @@ impl eframe::App for MyApp {
                         row.set_selected(row_index == self.cur_mpc);
                         row.col(|ui| {
                             ui.monospace(
-                                mics
-                                    .get(row_index)
+                                mics.get(row_index)
                                     .map(|v| v.content.as_str())
                                     .unwrap_or(""),
                             );

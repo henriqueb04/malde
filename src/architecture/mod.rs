@@ -41,13 +41,6 @@ impl Cpu {
         (prev_mar, mar, events)
     }
 
-    // pub fn advance_macroinstruction(&mut self) {
-    //     let mut mpc = 1; // temporary value
-    //     while mpc != 0 {
-    //         (mpc, _) = self.advance_microinstruction();
-    //     }
-    // }
-
     pub fn get_registors(&self) -> (u16, u16, &[u16; 16]) {
         (
             self.datapath.mar,

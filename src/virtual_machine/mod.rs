@@ -1,8 +1,8 @@
-use std::cell::Ref;
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
 use crate::architecture::datapath::RegistorBank;
 use crate::architecture::events::MachineEvents;
 use crate::architecture::memory::{Memory, MemoryArray};
+use std::cell::Ref;
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{
     architecture::{Cpu, control::MicroMem},
@@ -13,9 +13,7 @@ use crate::{
 };
 
 pub use crate::architecture::{
-    datapath::REGISTOR_NAMES,
-    memory::MEMORY_SIZE,
-    signals::ControlSignals,
+    datapath::REGISTOR_NAMES, memory::MEMORY_SIZE, signals::ControlSignals,
 };
 
 #[derive(Default)]
@@ -55,7 +53,12 @@ impl VM {
     pub fn assemble_mic<'a>(&mut self, source: &'a str) -> Result<(), MALParsingError<'a>> {
         let parser = MALParser::new();
         let microinstructions = parser.parse_instructions(source)?;
-        self.micro_mem.replace(MicroMem::new(microinstructions.iter().map(|m| m.mir.clone().into()).collect()));
+        self.micro_mem.replace(MicroMem::new(
+            microinstructions
+                .iter()
+                .map(|m| m.mir.clone().into())
+                .collect(),
+        ));
         self.state = VMState::Active;
         self.microinstructions = microinstructions;
         Ok(())
@@ -95,7 +98,7 @@ impl VM {
     // Cpu
     pub fn advance_microinstruction(&mut self) -> (usize, usize, MachineEvents) {
         match &self.state {
-            VMState::Active =>                 self.cpu.advance_microinstruction(),
+            VMState::Active => self.cpu.advance_microinstruction(),
 
             _ => Default::default(),
         }

@@ -1,8 +1,8 @@
-use std::collections::HashMap;
 use crate::architecture::signals::{
     CONTROL_SIGNAL_NAMES_B, CONTROL_SIGNAL_NAMES_U, ControlSignals,
 };
 use crate::parsers::mal::errors::{ValueAlreadySet, ValueConflictType};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct ControlSignalsBuilder<'a> {
@@ -57,7 +57,10 @@ impl<'a> ControlSignalsBuilder<'a> {
         {
             return Err(ValueAlreadySet {
                 name,
-                conflict: ValueConflictType::Bool { before: *a, after: v },
+                conflict: ValueConflictType::Bool {
+                    before: *a,
+                    after: v,
+                },
             });
         }
         self.bool_map.insert(name, Some(v));
@@ -73,7 +76,10 @@ impl<'a> ControlSignalsBuilder<'a> {
         {
             return Err(ValueAlreadySet {
                 name,
-                conflict: ValueConflictType::Int { before: *a, after: v },
+                conflict: ValueConflictType::Int {
+                    before: *a,
+                    after: v,
+                },
             });
         }
         self.int_map.insert(name, Some(v));
@@ -88,7 +94,10 @@ impl<'a> ControlSignalsBuilder<'a> {
         if let Some(a) = self.addr_symbol {
             return Err(ValueAlreadySet {
                 name: "addr",
-                conflict: ValueConflictType::Str { before: a, after: symbol },
+                conflict: ValueConflictType::Str {
+                    before: a,
+                    after: symbol,
+                },
             });
         }
         self.addr_symbol = Some(symbol);
@@ -106,34 +115,6 @@ impl<'a> ControlSignalsBuilder<'a> {
         let a = *self.int_map.get("a").unwrap();
         self.int_map.insert("a", *self.int_map.get("b").unwrap());
         self.int_map.insert("b", a);
-    }
-
-    pub fn is_all_some(&self) -> bool {
-        for name in CONTROL_SIGNAL_NAMES_B {
-            if self.bool_map.get(name).unwrap().is_none() {
-                return false;
-            }
-        }
-        for name in CONTROL_SIGNAL_NAMES_U {
-            if self.int_map.get(name).unwrap().is_none() {
-                return false;
-            }
-        }
-        true
-    }
-
-    pub fn is_all_none(&self) -> bool {
-        for name in CONTROL_SIGNAL_NAMES_B {
-            if self.bool_map.get(name).unwrap().is_some() {
-                return false;
-            }
-        }
-        for name in CONTROL_SIGNAL_NAMES_U {
-            if self.int_map.get(name).unwrap().is_some() {
-                return false;
-            }
-        }
-        true
     }
 
     pub fn set_defaults(&mut self) {
@@ -171,7 +152,6 @@ impl<'a> ControlSignalsBuilder<'a> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,14 +167,20 @@ mod tests {
             s.set_int("b", 3),
             Err(ValueAlreadySet {
                 name: "b",
-                conflict: ValueConflictType::Int { before: 2, after: 3 },
+                conflict: ValueConflictType::Int {
+                    before: 2,
+                    after: 3
+                },
             })
         );
         assert_eq!(
             s.set_int("a", 2),
             Err(ValueAlreadySet {
                 name: "a",
-                conflict: ValueConflictType::Int { before: 1, after: 2 },
+                conflict: ValueConflictType::Int {
+                    before: 1,
+                    after: 2
+                },
             })
         );
         assert_eq!(s.set_int("b", 2), Ok(2));

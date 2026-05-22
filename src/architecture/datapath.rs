@@ -1,9 +1,9 @@
-pub type RegistorBank = [u16; 16];
-
 use crate::architecture::{
     events::{MachineEvents, NamedChangeEvent, SlotChangeEvent},
     signals::{ALUSignals, ControlSignals},
 };
+
+pub type RegistorBank = [u16; 16];
 
 pub fn get_registor_index(registor_name: &str) -> Option<u8> {
     match registor_name {

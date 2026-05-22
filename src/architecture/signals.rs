@@ -58,12 +58,8 @@ pub struct ControlSignals {
     pub addr: u16,
 }
 
-pub const CONTROL_SIGNAL_NAMES_B: [&str; 6] = [
-    "amux", "mbr", "mar", "rd", "wr", "enc",
-];
-pub const CONTROL_SIGNAL_NAMES_U: [&str; 6] = [
-    "cond", "alu", "sh", "c", "b", "a", // "addr",
-];
+pub const CONTROL_SIGNAL_NAMES_B: [&str; 6] = ["amux", "mbr", "mar", "rd", "wr", "enc"];
+pub const CONTROL_SIGNAL_NAMES_U: [&str; 6] = ["cond", "alu", "sh", "c", "b", "a"];
 
 impl From<&u64> for ControlSignals {
     #[rustfmt::skip]
@@ -88,24 +84,24 @@ impl From<&u64> for ControlSignals {
 
 impl From<ControlSignals> for u64 {
     fn from(item: ControlSignals) -> u64 {
-        position_bit(&item.amux, 0) |
-        position_bits(&item.cond, 1, 3) |
-        position_bits(&item.alu, 3, 5) |
-        position_bits(&item.sh, 5, 7) |
-        position_bit(&item.mbr, 7) |
-        position_bit(&item.mar, 8) |
-        position_bit(&item.rd, 9) |
-        position_bit(&item.wr, 10) |
-        position_bit(&item.enc, 11) |
-        position_bits(&item.c, 12, 16) |
-        position_bits(&item.b, 16, 20) |
-        position_bits(&item.a, 20, 24) |
-        position_bits_u16(&item.addr, 24, 32)
+        position_bit(&item.amux, 0)
+            | position_bits(&item.cond, 1, 3)
+            | position_bits(&item.alu, 3, 5)
+            | position_bits(&item.sh, 5, 7)
+            | position_bit(&item.mbr, 7)
+            | position_bit(&item.mar, 8)
+            | position_bit(&item.rd, 9)
+            | position_bit(&item.wr, 10)
+            | position_bit(&item.enc, 11)
+            | position_bits(&item.c, 12, 16)
+            | position_bits(&item.b, 16, 20)
+            | position_bits(&item.a, 20, 24)
+            | position_bits_u16(&item.addr, 24, 32)
     }
 }
 
-
 #[cfg(test)]
+#[allow(clippy::unusual_byte_groupings)]
 mod tests {
     use super::*;
 

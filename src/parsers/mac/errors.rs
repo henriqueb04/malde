@@ -55,7 +55,11 @@ pub struct ParsingError<'a> {
 
 impl Display for ParsingError<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Erro no macroprograma, linha {}: {}\n{}", self.lineno, self.content, self.error_type)
+        write!(
+            f,
+            "Erro no macroprograma, linha {}: {}\n{}",
+            self.lineno, self.content, self.error_type
+        )
     }
 }
 

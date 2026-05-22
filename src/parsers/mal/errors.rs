@@ -1,11 +1,11 @@
-use std::fmt::Display;
 use std::error::Error;
+use std::fmt::Display;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValueConflictType<'a> {
-    Bool{ before: bool, after: bool },
-    Int{ before: u8, after: u8 },
-    Str{ before: &'a str, after: &'a str },
+    Bool { before: bool, after: bool },
+    Int { before: u8, after: u8 },
+    Str { before: &'a str, after: &'a str },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,9 +50,15 @@ impl<'a> Display for ParsingErrorType<'a> {
         match self {
             Self::SignalAlreadyDefined(err) => {
                 let (before, after) = match err.conflict {
-                    ValueConflictType::Bool { before, after } => (before.to_string(), after.to_string()),
-                    ValueConflictType::Int { before, after } => (before.to_string(), after.to_string()),
-                    ValueConflictType::Str { before, after } => (before.to_string(), after.to_string()),
+                    ValueConflictType::Bool { before, after } => {
+                        (before.to_string(), after.to_string())
+                    }
+                    ValueConflictType::Int { before, after } => {
+                        (before.to_string(), after.to_string())
+                    }
+                    ValueConflictType::Str { before, after } => {
+                        (before.to_string(), after.to_string())
+                    }
                 };
                 write!(
                     f,

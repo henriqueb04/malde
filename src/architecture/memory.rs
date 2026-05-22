@@ -1,4 +1,7 @@
-use crate::architecture::{events::{MachineEvents, SlotChangeEvent}, signals::ControlSignals};
+use crate::architecture::{
+    events::{MachineEvents, SlotChangeEvent},
+    signals::ControlSignals,
+};
 
 pub type MemoryArray = [u16; MEMORY_SIZE as usize];
 
@@ -24,10 +27,10 @@ impl Memory {
         self.memory.fill(0);
     }
 
-    pub fn load(&mut self, start: usize, data: &Vec<u16>) {
+    pub fn load(&mut self, start: usize, data: &[u16]) {
         let end = usize::min(self.memory.len(), start + data.len());
         let len = end - start;
-        self.memory[start..start+len].copy_from_slice(&data[..len]);
+        self.memory[start..start + len].copy_from_slice(&data[..len]);
     }
 
     pub fn request_rd(&mut self, mar: &u16, mbr: &mut u16) {
@@ -58,15 +61,29 @@ impl Memory {
             );
             let before = self.memory[self.previous_mar as usize];
             self.memory[self.previous_mar as usize] = *mbr;
-            events.memory_changed = Some(SlotChangeEvent { slot: self.previous_mar as usize, before, after: self.memory[self.previous_mar as usize] });
+            events.memory_changed = Some(SlotChangeEvent {
+                slot: self.previous_mar as usize,
+                before,
+                after: self.memory[self.previous_mar as usize],
+            });
         } else {
             let before = self.memory[self.previous_mar as usize];
             self.memory[*mar as usize] = *mbr;
-            events.memory_changed = Some(SlotChangeEvent { slot: *mar as usize, before, after: self.memory[*mar as usize] });
+            events.memory_changed = Some(SlotChangeEvent {
+                slot: *mar as usize,
+                before,
+                after: self.memory[*mar as usize],
+            });
         }
     }
 
-    pub fn clock(&mut self, signals: &ControlSignals, mar: &u16, mbr: &mut u16, mut events: &mut MachineEvents) {
+    pub fn clock(
+        &mut self,
+        signals: &ControlSignals,
+        mar: &u16,
+        mbr: &mut u16,
+        events: &mut MachineEvents,
+    ) {
         if *mar >= MEMORY_SIZE {
             println!("Address {} is out of bounds! Ignoring...", mar);
         }
@@ -80,7 +97,7 @@ impl Memory {
             println!("Both RW and WR are on at the same time!");
         }
         if *wr {
-            self.request_wr(mar, mbr, &mut events);
+            self.request_wr(mar, mbr, events);
             self.previous_mar = *mar;
         }
         if *rd {
@@ -100,7 +117,7 @@ mod tests {
     #[test]
     fn load_test() {
         let mut mem = Memory::new();
-        mem.load(5, &vec![1,2,3,4,5]);
+        mem.load(5, &[1, 2, 3, 4, 5]);
         assert_eq!(mem.memory[5], 1);
         assert_eq!(mem.memory[6], 2);
         assert_eq!(mem.memory[7], 3);

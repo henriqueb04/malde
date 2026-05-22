@@ -4,6 +4,23 @@ use crate::parsers::mal::mir_builder::ControlSignalsBuilder;
 use regex::{Captures, Regex};
 use std::sync::LazyLock;
 
+static LINE_NAME_R: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?<line>\s*(?:(?<name>[\d\w_-]+):)?\s*(?<content>[^#/]+))?\s*(?<comment>//|#)?")
+        .unwrap()
+});
+static OUTTER_R: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\s*(?<dest>[\d\w_-]+)\s*:=\s*(?<operation>.+)\s*").unwrap());
+static OPERATION_R: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?:(?<add>(?<sA>[^\s\+,]+)\s*\+\s*(?<sB>[^\s\+,]+))|(?<band>band\s*\(\s*(?<aA>[^\s\+,]+),\s*(?<aB>[^\s\+,]+)\s*\))|(?<inv>inv\s*\(\s*(?<iA>[^\s\+,]+)\s*\))|(?<transparency>[^\s\+,]+))$").unwrap()
+});
+static SHIFT_R: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(?<shift>lshift|rshift)\s*\((?<operation>.+)\)$").unwrap());
+static RD_R: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*rd\s*$").unwrap());
+static WR_R: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*wr\s*$").unwrap());
+static IF_GOTO_R: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\s*(?:if\s+(?<cond>z|n))?(?:\s*then)?\s*goto\s+(?<addr>[\d\w_-]+)\s*$").unwrap()
+});
+
 pub fn parse_line<'a>(
     line: &'a str,
 ) -> Option<Result<(&'a str, ControlSignalsBuilder<'a>), ParsingErrorType<'a>>> {
@@ -245,19 +262,3 @@ fn set_reg_b<'a, 'b>(
     Ok(())
 }
 
-static LINE_NAME_R: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?<line>\s*(?:(?<name>[\d\w_-]+):)?\s*(?<content>[^#/]+))?\s*(?<comment>//|#)?")
-        .unwrap()
-});
-static OUTTER_R: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^\s*(?<dest>[\d\w_-]+)\s*:=\s*(?<operation>.+)\s*").unwrap());
-static OPERATION_R: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?:(?<add>(?<sA>[^\s\+,]+)\s*\+\s*(?<sB>[^\s\+,]+))|(?<band>band\s*\(\s*(?<aA>[^\s\+,]+),\s*(?<aB>[^\s\+,]+)\s*\))|(?<inv>inv\s*\(\s*(?<iA>[^\s\+,]+)\s*\))|(?<transparency>[^\s\+,]+))$").unwrap()
-});
-static SHIFT_R: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^(?<shift>lshift|rshift)\s*\((?<operation>.+)\)$").unwrap());
-static RD_R: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*rd\s*$").unwrap());
-static WR_R: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*wr\s*$").unwrap());
-static IF_GOTO_R: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^\s*(?:if\s+(?<cond>z|n))?(?:\s*then)?\s*goto\s+(?<addr>[\d\w_-]+)\s*$").unwrap()
-});
