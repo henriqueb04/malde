@@ -1,4 +1,9 @@
-use crate::architecture::signals::{ALUSignals, ControlSignals};
+pub type RegistorBank = [u16; 16];
+
+use crate::architecture::{
+    events::{MachineEvents, NamedChangeEvent, SlotChangeEvent},
+    signals::{ALUSignals, ControlSignals},
+};
 
 pub fn get_registor_index(registor_name: &str) -> Option<u8> {
     match registor_name {
@@ -22,7 +27,7 @@ pub fn get_registor_index(registor_name: &str) -> Option<u8> {
     }
 }
 
-pub const DEFAULT_REGISTOR_VALUES: [u16; 16] = [
+pub const DEFAULT_REGISTOR_VALUES: RegistorBank = [
     0,
     0,
     (1 << 12) as u16, // sp (no final da memória)
@@ -51,7 +56,7 @@ pub struct Datapath {
     bus_a: u16,
     bus_b: u16,
     bus_c: u16,
-    registors: [u16; 16],
+    registors: RegistorBank,
     alu_out: u16,
     alu_in_a: u16,
     pub mar: u16,
@@ -124,12 +129,8 @@ impl Datapath {
     }
 
     fn load_to_registor(&mut self, registor: u8) {
-        match registor {
-            5..=9 => println!(
-                "Trying to set constant registor {}. That is probably a mistake. Ignoring...",
-                get_registor_name(registor)
-            ),
-            _ => self.registors[registor as usize] = self.bus_c,
+        if registor < 5 || registor > 9 {
+            self.registors[registor as usize] = self.bus_c;
         }
     }
 
@@ -142,20 +143,36 @@ impl Datapath {
         self.mbr = self.bus_c;
     }
 
-    pub fn clock(&mut self, signals: &ControlSignals) {
+    pub fn clock(&mut self, signals: &ControlSignals, events: &mut MachineEvents) {
         self.load_to_bus_a(signals.a);
         self.load_to_bus_b(signals.b);
         if signals.mar {
+            let before = self.mar;
             self.load_to_mar();
+            events.mar_changed = Some(NamedChangeEvent {
+                before,
+                after: self.mar,
+            });
         }
         self.alu_in_a = if signals.amux { self.mbr } else { self.bus_a };
         self.alu_operate(signals.alu);
         self.shift(signals.sh);
         if signals.mbr {
+            let before = self.mbr;
             self.load_to_mbr();
+            events.mbr_changed = Some(NamedChangeEvent {
+                before,
+                after: self.mbr,
+            });
         }
         if signals.enc {
+            let before = self.get_registor(signals.c);
             self.load_to_registor(signals.c);
+            events.registor_changed = Some(SlotChangeEvent {
+                slot: signals.c as usize,
+                before,
+                after: self.get_registor(signals.c),
+            });
         }
     }
 
@@ -165,7 +182,7 @@ impl Datapath {
         self.mbr = 0;
     }
 
-    pub fn get_registors(&self) -> &[u16; 16] {
+    pub fn get_registors(&self) -> &RegistorBank {
         &self.registors
     }
 }

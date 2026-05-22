@@ -18,17 +18,17 @@ pub struct MicroinstructionBuilder<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Microinstruction<'a> {
+pub struct Microinstruction {
     pub lineno: usize,
-    pub content: &'a str,
+    pub content: String,
     pub mir: ControlSignals,
 }
 
-impl<'a> From<MicroinstructionBuilder<'a>> for Microinstruction<'a> {
+impl<'a> From<MicroinstructionBuilder<'a>> for Microinstruction {
     fn from(value: MicroinstructionBuilder<'a>) -> Self {
         Microinstruction {
             lineno: value.lineno,
-            content: value.content,
+            content: String::from(value.content),
             mir: value.mir.build(),
         }
     }
@@ -103,7 +103,7 @@ impl MALParser {
     pub fn parse_instructions<'a>(
         &self,
         source: &'a str,
-    ) -> Result<Vec<Microinstruction<'a>>, ParsingError<'a>> {
+    ) -> Result<Vec<Microinstruction>, ParsingError<'a>> {
         let (mut instructions, symbol_table) = self.map_instructions(source)?;
         self.insert_addresses(&mut instructions, symbol_table)?;
         Ok(instructions
@@ -204,8 +204,18 @@ mod tests {
     #[test]
     fn test_code_equivalence() {
         let mp = MALParser::new();
-        let ml1: Vec<u64> = mp.parse_instructions(&read_to_string("/home/henrique/code/mac1/teste.mal").unwrap()).expect("").into_iter().map(|m| u64::from(m.mir)).collect();
-        let ml2: Vec<u64> = mp.parse_instructions(&read_to_string("/home/henrique/code/mac1/malde.mal").unwrap()).expect("").into_iter().map(|m| u64::from(m.mir)).collect();
+        let ml1: Vec<u64> = mp
+            .parse_instructions(&read_to_string("/home/henrique/code/mac1/teste.mal").unwrap())
+            .expect("")
+            .into_iter()
+            .map(|m| u64::from(m.mir))
+            .collect();
+        let ml2: Vec<u64> = mp
+            .parse_instructions(&read_to_string("/home/henrique/code/mac1/malde.mal").unwrap())
+            .expect("")
+            .into_iter()
+            .map(|m| u64::from(m.mir))
+            .collect();
         for i in 0..ml1.len() {
             if ml1[i] != ml2[i] {
                 println!("{}", i);

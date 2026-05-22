@@ -1,11 +1,13 @@
-use crate::architecture::signals::ControlSignals;
+use crate::architecture::{events::{MachineEvents, SlotChangeEvent}, signals::ControlSignals};
+
+pub type MemoryArray = [u16; MEMORY_SIZE as usize];
 
 pub const MEMORY_SIZE: u16 = 1 << 12;
 pub struct Memory {
     rd_clock_count: u8,
     wr_clock_count: u8,
     previous_mar: u16,
-    memory: [u16; MEMORY_SIZE as usize],
+    memory: MemoryArray,
 }
 
 impl Memory {
@@ -44,7 +46,7 @@ impl Memory {
         }
     }
 
-    fn request_wr(&mut self, mar: &u16, mbr: &mut u16) {
+    fn request_wr(&mut self, mar: &u16, mbr: &mut u16, events: &mut MachineEvents) {
         self.wr_clock_count += 1;
         if self.wr_clock_count < 2 {
             return;
@@ -54,13 +56,17 @@ impl Memory {
                 "MAR address changed from {} to {} before response from memory! Ignoring...",
                 self.previous_mar, mar
             );
+            let before = self.memory[self.previous_mar as usize];
             self.memory[self.previous_mar as usize] = *mbr;
+            events.memory_changed = Some(SlotChangeEvent { slot: self.previous_mar as usize, before, after: self.memory[self.previous_mar as usize] });
         } else {
+            let before = self.memory[self.previous_mar as usize];
             self.memory[*mar as usize] = *mbr;
+            events.memory_changed = Some(SlotChangeEvent { slot: *mar as usize, before, after: self.memory[*mar as usize] });
         }
     }
 
-    pub fn clock(&mut self, signals: &ControlSignals, mar: &u16, mbr: &mut u16) {
+    pub fn clock(&mut self, signals: &ControlSignals, mar: &u16, mbr: &mut u16, mut events: &mut MachineEvents) {
         if *mar >= MEMORY_SIZE {
             println!("Address {} is out of bounds! Ignoring...", mar);
         }
@@ -74,7 +80,7 @@ impl Memory {
             println!("Both RW and WR are on at the same time!");
         }
         if *wr {
-            self.request_wr(mar, mbr);
+            self.request_wr(mar, mbr, &mut events);
             self.previous_mar = *mar;
         }
         if *rd {
@@ -83,7 +89,7 @@ impl Memory {
         }
     }
 
-    pub fn get_ref(&self) -> &[u16; MEMORY_SIZE as usize] {
+    pub fn get_ref(&self) -> &MemoryArray {
         &self.memory
     }
 }

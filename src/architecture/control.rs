@@ -1,20 +1,23 @@
+use std::{cell::RefCell, rc::Rc};
+
 use crate::architecture::signals::{ALUSignals, ControlSignals};
 
 const MICROMEM_MAX_SIZE: usize = (1 << 10) - 1;
 
-pub struct Sequencer {
+#[derive(Default)]
+pub struct MicroMem {
     pub microinstructions: Vec<u64>,
     pub len: usize,
 }
 
-impl Sequencer {
+impl MicroMem {
     pub fn new(mut microinstructions: Vec<u64>) -> Self {
         let len = microinstructions.len();
         if len > MICROMEM_MAX_SIZE {
             println!("Tamanho excedido para memória de microinstrução! Descartando excedente");
             microinstructions.truncate(MICROMEM_MAX_SIZE);
         }
-        Sequencer {
+        MicroMem {
             microinstructions,
             len,
         }
@@ -27,21 +30,22 @@ impl Sequencer {
 
 pub struct ControlUnit {
     pub signals: ControlSignals,
-    pub sequencer: Sequencer,
+    pub micro_mem: Rc<RefCell<MicroMem>>,
     pub mpc: usize,
 }
 
 impl ControlUnit {
-    pub fn new(sequencer: Sequencer) -> Self {
+    pub fn new(micro_mem: Rc<RefCell<MicroMem>>) -> Self {
         ControlUnit {
             signals: ControlSignals::default(),
-            sequencer,
+            micro_mem,
             mpc: 0,
         }
     }
 
     pub fn load_signals(&mut self) {
-        self.sequencer
+        self.micro_mem
+            .borrow_mut()
             .load_instruction(&self.mpc, &mut self.signals);
     }
 
@@ -65,7 +69,7 @@ impl ControlUnit {
             3 => self.signals.addr as usize,
             _ => self.mpc + 1,
         };
-        if self.mpc >= self.sequencer.len {
+        if self.mpc >= self.micro_mem.borrow().len {
             println!("Microinstruction pc has gone out of bounds! Reseting to 0.");
         }
         (self.mpc, old_mpc)

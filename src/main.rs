@@ -2,17 +2,14 @@
 
 mod architecture;
 mod parsers;
+mod virtual_machine;
 
 use std::fs;
 
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 
-use crate::architecture::Cpu;
-use crate::architecture::datapath::REGISTOR_NAMES;
-use crate::architecture::memory::MEMORY_SIZE;
-use crate::architecture::signals::ControlSignals;
-use crate::parsers::{mac, mal};
+use crate::virtual_machine::{ControlSignals, MEMORY_SIZE, REGISTOR_NAMES, VM};
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
@@ -31,12 +28,11 @@ pub struct MyApp {
     microprogram: Option<String>,
     msg_modal_open: bool,
     msg_modal_text: String,
-    cpu: Cpu,
     mir: Option<ControlSignals>,
     cur_mpc: usize,
     scroll_mpc: Option<usize>,
-    microinstructions: Vec<String>,
     mem_view_index: usize,
+    vm: VM,
 }
 
 impl eframe::App for MyApp {
@@ -49,11 +45,11 @@ impl eframe::App for MyApp {
             .resizable(true)
             .min_size(350.0)
             .show_inside(ui, |ui| {
-                if self.cpu.is_ready() {
+                if self.vm.is_ready() {
                     ui.horizontal(|ui| {
                         if ui.button("Próxima microinstrução").clicked() {
                             self.advance_microinstruction();
-                            self.mir = Some(self.cpu.get_control_signals().clone());
+                            self.mir = Some(self.vm.get_control_signals().clone());
                         }
                         if ui.button("Resetar").clicked() {
                             self.reset_cpu();
@@ -114,7 +110,7 @@ impl eframe::App for MyApp {
                             });
                         });
                     ui.strong("Registradores:");
-                    let (mar, mbr, registors) = self.cpu.get_registors();
+                    let (mar, mbr, registors) = self.vm.get_registors();
                     let reg_table = TableBuilder::new(ui)
                         .auto_shrink([true; 2])
                         .id_salt("reg_table")
@@ -223,7 +219,7 @@ impl eframe::App for MyApp {
             });
             ui.separator();
             let available_height = ui.available_height();
-            if self.cpu.is_ready() {
+            if self.vm.is_ready() {
                 let mut mal_table = TableBuilder::new(ui)
                     .striped(true)
                     .resizable(false)
@@ -234,15 +230,16 @@ impl eframe::App for MyApp {
                 if let Some(mpc) = self.scroll_mpc.take() {
                     mal_table = mal_table.scroll_to_row(mpc, None);
                 }
+                let mics = self.vm.get_microinstructions();
                 mal_table.body(|body| {
-                    body.rows(text_height, self.microinstructions.len(), |mut row| {
+                    body.rows(text_height, mics.len(), |mut row| {
                         let row_index = row.index();
                         row.set_selected(row_index == self.cur_mpc);
                         row.col(|ui| {
                             ui.monospace(
-                                self.microinstructions
+                                mics
                                     .get(row_index)
-                                    .map(|v| v.as_str())
+                                    .map(|v| v.content.as_str())
                                     .unwrap_or(""),
                             );
                         });
@@ -283,12 +280,11 @@ impl MyApp {
             microprogram: Some(String::from("/home/henrique/code/mac1/malde.mal")),
             msg_modal_open: false,
             msg_modal_text: String::new(),
-            cpu: Cpu::new(Vec::new()),
             mir: None,
             cur_mpc: 0,
-            microinstructions: Vec::new(),
             mem_view_index: 0,
             scroll_mpc: None,
+            vm: VM::new(),
         }
     }
     fn assemble_micro(&mut self, path: &str) {
@@ -296,44 +292,26 @@ impl MyApp {
             self.show_error_modal(String::from("Falha ao ler arquivo"));
             return;
         };
-        let mut mal_parser = mal::MALParser::new();
-        match mal_parser.parse_instructions(&contents) {
-            Ok(microinstructions) => {
-                self.cpu.load_microinstructions(
-                    microinstructions.iter().map(|v| v.mir.clone().into()).collect(),
-                );
-                self.microinstructions = microinstructions
-                    .iter()
-                    .map(|m| String::from(m.content))
-                    .collect();
-            }
-            Err(err) => self.show_error_modal(err.to_string()),
-        }
+        if let Err(err) = self.vm.assemble_mic(&contents) {
+            self.show_error_modal(err.to_string());
+        };
     }
     fn assemble_macro(&mut self, path: &str) {
         let Ok(contents) = fs::read_to_string(path) else {
             self.show_error_modal(String::from("Falha ao ler arquivo"));
             return;
         };
-        let mut mac_parser = mac::ASMParser::new();
-        match mac_parser.parse_text(&contents) {
-            Ok(mem) => {
-                self.cpu.init_memory(mem);
-                self.reset_cpu();
-            }
-            Err((lineno, error_type)) => self.show_error_modal(format!(
-                "Erro no macroprograma, linha {}: {}",
-                lineno, error_type
-            )),
-        }
+        if let Err(err) = self.vm.assemble_mac(&contents) {
+            self.show_error_modal(err.to_string());
+        };
     }
     fn reset_cpu(&mut self) {
-        self.cpu.reset();
+        self.vm.reset();
         self.mir = None;
     }
 
     fn advance_microinstruction(&mut self) {
-        (_, self.cur_mpc) = self.cpu.advance_microinstruction();
+        (_, self.cur_mpc, _) = self.vm.advance_microinstruction();
         self.scroll_mpc = Some(self.cur_mpc);
     }
 
@@ -347,7 +325,7 @@ impl MyApp {
     }
 
     fn show_mem_table(&mut self, ui: &mut egui::Ui) {
-        let memory = self.cpu.get_memory();
+        let memory = self.vm.get_memory();
         let text_height = egui::TextStyle::Body
             .resolve(ui.style())
             .size

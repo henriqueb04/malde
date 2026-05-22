@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{error::Error, fmt::Display};
 
 #[derive(Debug)]
 pub enum ParsingErrorType<'a> {
@@ -48,7 +48,15 @@ impl Display for ParsingErrorType<'_> {
 
 #[derive(Debug)]
 pub struct ParsingError<'a> {
-    lineno: usize,
-    content: &'a str,
-    error_type: ParsingErrorType<'a>,
+    pub lineno: usize,
+    pub content: &'a str,
+    pub error_type: ParsingErrorType<'a>,
 }
+
+impl Display for ParsingError<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Erro no macroprograma, linha {}: {}\n{}", self.lineno, self.content, self.error_type)
+    }
+}
+
+impl Error for ParsingError<'_> {}

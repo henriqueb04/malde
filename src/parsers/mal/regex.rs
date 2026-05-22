@@ -1,8 +1,8 @@
-use regex::{Captures, Regex};
-use std::sync::LazyLock;
-use crate::parsers::mal::mir_builder::ControlSignalsBuilder;
 use crate::architecture::datapath::get_registor_index;
 use crate::parsers::mal::errors::ParsingErrorType;
+use crate::parsers::mal::mir_builder::ControlSignalsBuilder;
+use regex::{Captures, Regex};
+use std::sync::LazyLock;
 
 pub fn parse_line<'a>(
     line: &'a str,
@@ -186,10 +186,13 @@ fn set_reg_a<'a, 'b>(
     op: &'b Captures<'a>,
     name: &'a str,
 ) -> Result<(), ParsingErrorType<'a>>
-    where 'a: 'b
+where
+    'a: 'b,
 {
     let Some(name) = op.name(name) else {
-        return Err(ParsingErrorType::InvalidExpression(op.get(0).map_or("", |m| m.as_str())));
+        return Err(ParsingErrorType::InvalidExpression(
+            op.get(0).map_or("", |m| m.as_str()),
+        ));
     };
     let name = name.as_str();
     if name == "mbr" {
@@ -215,7 +218,9 @@ fn set_reg_b<'a, 'b>(
     name: &'a str,
 ) -> Result<(), ParsingErrorType<'a>> {
     let Some(name) = op.name(name) else {
-        return Err(ParsingErrorType::InvalidExpression(op.get(0).map_or("", |m| m.as_str())));
+        return Err(ParsingErrorType::InvalidExpression(
+            op.get(0).map_or("", |m| m.as_str()),
+        ));
     };
     let name = name.as_str();
     if name == "mbr" || name == "mar" {
@@ -240,8 +245,10 @@ fn set_reg_b<'a, 'b>(
     Ok(())
 }
 
-static LINE_NAME_R: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^(?<line>\s*(?:(?<name>[^\d\w_-]+):)?\s*(?<content>[^#/]+))?\s*(?<comment>//|#)?").unwrap());
+static LINE_NAME_R: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?<line>\s*(?:(?<name>[\d\w_-]+):)?\s*(?<content>[^#/]+))?\s*(?<comment>//|#)?")
+        .unwrap()
+});
 static OUTTER_R: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*(?<dest>[\d\w_-]+)\s*:=\s*(?<operation>.+)\s*").unwrap());
 static OPERATION_R: LazyLock<Regex> = LazyLock::new(|| {
