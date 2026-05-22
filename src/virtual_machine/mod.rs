@@ -1,6 +1,6 @@
 use crate::architecture::datapath::RegistorBank;
 use crate::architecture::events::MachineEvents;
-use crate::architecture::memory::{Memory, MemoryArray};
+use crate::architecture::memory::{DATA_SEGMENT_START, Memory, MemoryArray, TEXT_SEGMENT_START};
 use std::cell::Ref;
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
@@ -26,7 +26,7 @@ pub enum VMState {
 pub struct VM {
     keywords: HashMap<String, String>,
     state: VMState,
-    initial_memory: Option<Vec<u16>>,
+    initial_memory: Option<(Vec<u16>, Vec<u16>)>,
     memory: Rc<RefCell<Memory>>,
     micro_mem: Rc<RefCell<MicroMem>>,
     cpu: Cpu,
@@ -67,7 +67,7 @@ impl VM {
     pub fn assemble_mac<'a>(&mut self, source: &'a str) -> Result<(), ASMParsingError<'a>> {
         let mut parser = ASMParser::new(&self.keywords);
         let mem = parser.parse_text(source)?;
-        self.set_initial_memory(mem);
+        self.set_initial_memory(mem.0, mem.1);
         self.reset_memory();
         Ok(())
     }
@@ -81,14 +81,16 @@ impl VM {
     }
 
     // Memory
-    pub fn set_initial_memory(&mut self, initial_memory: Vec<u16>) {
-        self.initial_memory = Some(initial_memory);
+    pub fn set_initial_memory(&mut self, initial_instructions: Vec<u16>, initial_data: Vec<u16>) {
+        self.initial_memory = Some((initial_instructions, initial_data));
     }
     pub fn reset_memory(&mut self) {
-        if let Some(mem) = self.initial_memory.as_ref() {
+        if let Some((initial_instructions, initial_data)) = self.initial_memory.as_ref() {
             let mut memory = self.memory.borrow_mut();
             memory.clear();
-            memory.load(0, mem);
+            memory.load(TEXT_SEGMENT_START, initial_instructions);
+            memory.load(DATA_SEGMENT_START - 1, &[0]); // HALT de segurança
+            memory.load(DATA_SEGMENT_START, initial_data);
         }
     }
     pub fn get_memory(&self) -> Ref<'_, MemoryArray> {
@@ -108,7 +110,8 @@ impl VM {
         let mut memory = self.memory.borrow_mut();
         if let Some(mem) = self.initial_memory.take() {
             memory.clear();
-            memory.load(0, &mem);
+            memory.load(TEXT_SEGMENT_START, &mem.0);
+            memory.load(DATA_SEGMENT_START, &mem.1);
             self.initial_memory = Some(mem);
         }
         self.cpu.reset();

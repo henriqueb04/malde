@@ -52,7 +52,7 @@ impl eframe::App for MyApp {
                             self.mir = Some(self.vm.get_control_signals().clone());
                         }
                         if ui.button("Resetar").clicked() {
-                            self.reset_cpu();
+                            self.reset_vm();
                         }
                     });
                 }
@@ -304,7 +304,7 @@ impl MyApp {
             self.show_error_modal(err.to_string());
         };
     }
-    fn reset_cpu(&mut self) {
+    fn reset_vm(&mut self) {
         self.vm.reset();
         self.mir = None;
     }
@@ -330,7 +330,7 @@ impl MyApp {
             .size
             .max(ui.spacing().interact_size.y);
         let available_height = ui.available_height();
-        let n_rows = 20;
+        let n_rows = 16;
         let n_cols = 12;
         let table = TableBuilder::new(ui)
             .striped(true)
@@ -355,7 +355,7 @@ impl MyApp {
                 body.rows(text_height, n_rows, |mut row| {
                     let row_index = self.mem_view_index + row.index() * n_cols;
                     row.col(|ui| {
-                        if row_index < MEMORY_SIZE as usize {
+                        if row_index < MEMORY_SIZE {
                             ui.strong(row_index.to_string());
                         } else {
                             ui.strong("---");
@@ -379,7 +379,7 @@ impl MyApp {
             }
             if ui.button("➡").clicked() {
                 let new_index = self.mem_view_index + n_cols * n_rows;
-                if new_index < MEMORY_SIZE as usize {
+                if new_index < MEMORY_SIZE {
                     self.mem_view_index = new_index;
                 }
             }

@@ -3,9 +3,12 @@ use crate::architecture::{
     signals::ControlSignals,
 };
 
-pub type MemoryArray = [u16; MEMORY_SIZE as usize];
+pub type MemoryArray = [u16; MEMORY_SIZE];
 
-pub const MEMORY_SIZE: u16 = 1 << 12;
+pub const DATA_SEGMENT_START: usize = 1536;
+pub const TEXT_SEGMENT_START: usize = 0;
+
+pub const MEMORY_SIZE: usize = 1 << 12;
 pub struct Memory {
     rd_clock_count: u8,
     wr_clock_count: u8,
@@ -19,12 +22,15 @@ impl Memory {
             rd_clock_count: 0,
             wr_clock_count: 0,
             previous_mar: 0,
-            memory: [0; MEMORY_SIZE as usize],
+            memory: [0; MEMORY_SIZE],
         }
     }
 
     pub fn clear(&mut self) {
         self.memory.fill(0);
+        self.rd_clock_count = 0;
+        self.wr_clock_count = 0;
+        self.previous_mar = 0;
     }
 
     pub fn load(&mut self, start: usize, data: &[u16]) {
@@ -84,7 +90,7 @@ impl Memory {
         mbr: &mut u16,
         events: &mut MachineEvents,
     ) {
-        if *mar >= MEMORY_SIZE {
+        if *mar >= MEMORY_SIZE as u16 {
             println!("Address {} is out of bounds! Ignoring...", mar);
         }
         let rd = &signals.rd;

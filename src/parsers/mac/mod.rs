@@ -1,8 +1,14 @@
 mod errors;
 mod regex;
 
-use crate::parsers::mac::regex::*;
+use crate::{
+    architecture::memory::{MEMORY_SIZE, DATA_SEGMENT_START, TEXT_SEGMENT_START},
+    parsers::mac::regex::*,
+};
 use std::collections::HashMap;
+
+pub const MAX_INSTRUCTION_LIMIT: usize = DATA_SEGMENT_START - TEXT_SEGMENT_START - 1;
+pub const MAX_DATA_LIMIT: usize = MEMORY_SIZE - DATA_SEGMENT_START;
 
 pub use crate::parsers::mac::errors::*;
 
@@ -45,7 +51,10 @@ impl<'a> ASMParser<'a> {
         }
     }
 
-    pub fn parse_text<'b>(&mut self, text: &'b str) -> Result<Vec<u16>, ParsingError<'b>>
+    pub fn parse_text<'b>(
+        &mut self,
+        text: &'b str,
+    ) -> Result<(Vec<u16>, Vec<u16>), ParsingError<'b>>
     where
         'b: 'a,
     {
@@ -122,6 +131,15 @@ impl<'a> ASMParser<'a> {
                                     }
                                 }
                             }
+                            if data.len() + m.len() > MAX_DATA_LIMIT {
+                                return Err(ParsingError {
+                                    lineno,
+                                    content,
+                                    error_type: ParsingErrorType::DataOverflow(
+                                        data.len() + m.len(),
+                                    ),
+                                });
+                            }
                             data.extend(m);
                         }
                         ".ascii" | ".asciz" | ".asciiz" => {
@@ -137,6 +155,15 @@ impl<'a> ASMParser<'a> {
                             };
                             if def_type != ".ascii" {
                                 m.push(0);
+                            }
+                            if data.len() + m.len() > MAX_DATA_LIMIT {
+                                return Err(ParsingError {
+                                    lineno,
+                                    content,
+                                    error_type: ParsingErrorType::DataOverflow(
+                                        data.len() + m.len(),
+                                    ),
+                                });
                             }
                             data.extend(m);
                         }
@@ -185,7 +212,7 @@ impl<'a> ASMParser<'a> {
                 }
             }
         }
-        let instruction_padding = pre_instructions.len() + 1;
+        let instruction_padding = DATA_SEGMENT_START;
         for (_, v) in data_symbols.iter_mut() {
             *v += instruction_padding;
         }
@@ -262,6 +289,15 @@ impl<'a> ASMParser<'a> {
                 }
             }
             if let Ok(n) = u16::from_str_radix(s.as_str(), 2) {
+                // Verifica se estoura o limite de instruções.
+                // Como sempre adiciona uma, não deve estourar com HALT
+                if mem.len() + 1 > MAX_INSTRUCTION_LIMIT && n != 0 {
+                    return Err(ParsingError {
+                        lineno: *lineno,
+                        content,
+                        error_type: ParsingErrorType::InstructionOverflow(mem.len() + 1),
+                    });
+                }
                 mem.push(n);
             } else {
                 return Err(ParsingError {
@@ -271,9 +307,7 @@ impl<'a> ASMParser<'a> {
                 });
             }
         }
-        mem.push(0);
-        mem.extend(data);
-        Ok(mem)
+        Ok((mem, data))
     }
 }
 
@@ -285,7 +319,7 @@ mod tests {
         let keywords =
             HashMap::from(DEFAULT_KEYWORDS.map(|(k, v)| (String::from(k), String::from(v))));
         let mut parser = ASMParser::new(&keywords);
-        let mem = parser
+        let mut mem = parser
             .parse_text(
                 "aflkjaflkdsjf
 
@@ -305,10 +339,12 @@ PRINT: LOCO TESTE4
     LOCO -1",
             )
             .unwrap();
+        mem.0.push(0);
+        mem.0.extend(mem.1);
         let expected = [
-            0b0000000000000110,
-            0b0011000000000111,
-            0b0111000000001111,
+            0b0000011000000000,
+            0b0011011000000001,
+            0b0111011000001001,
             0b0111000000000001,
             0b0111111111111111,
             0b0000000000000000,
@@ -323,14 +359,14 @@ PRINT: LOCO TESTE4
             0b0000000000000100,
             0b0000000000000101,
         ];
-        for (i, s) in mem.iter().enumerate() {
+        for (i, s) in mem.0.iter().enumerate() {
             println!("Got:      {:016b}", s);
             println!("Expected: {:016b}", expected[i]);
         }
-        assert_eq!(mem, expected);
+        assert_eq!(mem.0, expected);
 
         let mut parser = ASMParser::new(&keywords);
-        let mem = parser
+        let mut mem = parser
             .parse_text(
                 ".data
 TESTE1: .word 1 // Comentário
@@ -344,6 +380,8 @@ TESTE8: .asciz \"abc\" // Comentário
 ",
             )
             .unwrap();
+        mem.0.push(0);
+        mem.0.extend(mem.1);
         let expected = [
             0b0000000000000000,
             0b0000000000000001,
@@ -355,15 +393,17 @@ TESTE8: .asciz \"abc\" // Comentário
             0b0000000000000111,
             0b0000000000001000,
             0b0000000000001001,
+            // abc
             97,
             98,
             99,
+            // abc\0
             97,
             98,
             99,
             0,
         ];
-        for (i, &s) in mem.iter().enumerate() {
+        for (i, &s) in mem.0.iter().enumerate() {
             if s != expected[i] {
                 println!("---");
             }
@@ -373,6 +413,6 @@ TESTE8: .asciz \"abc\" // Comentário
                 println!("---");
             }
         }
-        assert_eq!(mem, expected);
+        assert_eq!(mem.0, expected);
     }
 }

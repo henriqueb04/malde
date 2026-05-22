@@ -13,6 +13,9 @@ pub enum ParsingErrorType<'a> {
     UnsupportedDirective(&'a str),
     InvalidString(&'a str),
     InvalidChar(&'a str),
+    InstructionOverflow(usize),
+    DataOverflow(usize),
+
 }
 
 impl Display for ParsingErrorType<'_> {
@@ -42,6 +45,8 @@ impl Display for ParsingErrorType<'_> {
             // Self::InvalidDataDefinition(_reason, content) => write!(f, "Declaração data inválida \"{}\"", content),
             Self::InvalidString(content) => write!(f, "String inválida '{}'", content),
             Self::InvalidChar(content) => write!(f, "Caractere inválido '{}'", content),
+            Self::InstructionOverflow(size) => write!(f, "Quantidade {} de instruções maior que o tamanho da seção de instruções", size),
+            Self::DataOverflow(size) => write!(f, "Quantidade {} de dados maior que o tamanho da seção de dados", size),
         }
     }
 }
