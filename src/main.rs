@@ -11,7 +11,7 @@ use egui_extras::{Column, TableBuilder};
 
 use crate::{
     architecture::events::MachineEvents,
-    virtual_machine::{MEMORY_SIZE, REGISTOR_NAMES, VM},
+    virtual_machine::{MEMORY_SIZE, REGISTER_NAMES, VM},
 };
 
 fn main() -> eframe::Result {
@@ -114,7 +114,7 @@ impl eframe::App for MyApp {
                             });
                         });
                     ui.strong("Registradores:");
-                    let (mar, mbr, registors) = self.vm.get_registors();
+                    let (mar, mbr, registers) = self.vm.get_registers();
                     let reg_table = TableBuilder::new(ui)
                         .auto_shrink([true; 2])
                         .id_salt("reg_table")
@@ -174,8 +174,8 @@ impl eframe::App for MyApp {
                             });
                             body.rows(text_height, 16, |mut row| {
                                 let row_index = row.index();
-                                let reg_name = REGISTOR_NAMES.get(row_index).map_or("", |v| v);
-                                if let Some(event) = &self.last_events.registor_changed
+                                let reg_name = REGISTER_NAMES.get(row_index).map_or("", |v| v);
+                                if let Some(event) = &self.last_events.register_changed
                                     && event.slot == row_index
                                 {
                                     row.set_selected(true);
@@ -192,11 +192,11 @@ impl eframe::App for MyApp {
                                         || reg_name == "amask"
                                         || reg_name == "smask"
                                     {
-                                        format!("{:016b}", registors[row_index])
+                                        format!("{:016b}", registers[row_index])
                                     } else {
-                                        format!("{}", registors[row_index] as i16)
+                                        format!("{}", registers[row_index] as i16)
                                     });
-                                    if let Some(event) = &self.last_events.registor_changed && row_index == event.slot {
+                                    if let Some(event) = &self.last_events.register_changed && row_index == event.slot {
                                         ui.add(label).on_hover_text(format!("Anterior: {}", event.before));
                                     } else {
                                         ui.add(label);

@@ -3,10 +3,10 @@ use crate::architecture::{
     signals::{ALUSignals, ControlSignals},
 };
 
-pub type RegistorBank = [u16; 16];
+pub type RegisterBank = [u16; 16];
 
-pub fn get_registor_index(registor_name: &str) -> Option<u8> {
-    match registor_name {
+pub fn get_register_index(register_name: &str) -> Option<u8> {
+    match register_name {
         "pc" => Some(0),
         "ac" => Some(1),
         "sp" => Some(2),
@@ -27,7 +27,7 @@ pub fn get_registor_index(registor_name: &str) -> Option<u8> {
     }
 }
 
-pub const DEFAULT_REGISTOR_VALUES: RegistorBank = [
+pub const DEFAULT_REGISTER_VALUES: RegisterBank = [
     0,
     0,
     (1 << 12) as u16, // sp (no final da memória)
@@ -45,18 +45,18 @@ pub const DEFAULT_REGISTOR_VALUES: RegistorBank = [
     0,
     0,
 ];
-pub const REGISTOR_NAMES: [&str; 16] = [
+pub const REGISTER_NAMES: [&str; 16] = [
     "pc", "ac", "sp", "ir", "tir", "0", "1", "-1", "amask", "smask", "a", "b", "c", "d", "e", "f",
 ];
-pub fn get_registor_name(registor_index: u8) -> &'static str {
-    REGISTOR_NAMES[registor_index as usize]
+pub fn get_register_name(register_index: u8) -> &'static str {
+    REGISTER_NAMES[register_index as usize]
 }
 
 pub struct Datapath {
     bus_a: u16,
     bus_b: u16,
     bus_c: u16,
-    registors: RegistorBank,
+    registers: RegisterBank,
     alu_out: u16,
     alu_in_a: u16,
     pub mar: u16,
@@ -72,7 +72,7 @@ impl Datapath {
             bus_c: 0,
             mar: 0,
             mbr: 0,
-            registors: DEFAULT_REGISTOR_VALUES,
+            registers: DEFAULT_REGISTER_VALUES,
             alu_in_a: 0,
             alu_out: 0,
             alu_sigs: ALUSignals { z: false, n: false },
@@ -80,16 +80,16 @@ impl Datapath {
     }
 
     #[inline]
-    fn get_registor(&self, registor: u8) -> u16 {
-        self.registors[registor as usize]
+    fn get_register(&self, register: u8) -> u16 {
+        self.registers[register as usize]
     }
 
-    fn load_to_bus_a(&mut self, registor: u8) {
-        self.bus_a = self.get_registor(registor);
+    fn load_to_bus_a(&mut self, register: u8) {
+        self.bus_a = self.get_register(register);
     }
 
-    fn load_to_bus_b(&mut self, registor: u8) {
-        self.bus_b = self.get_registor(registor);
+    fn load_to_bus_b(&mut self, register: u8) {
+        self.bus_b = self.get_register(register);
     }
 
     fn alu_add(&mut self) {
@@ -128,9 +128,9 @@ impl Datapath {
         }
     }
 
-    fn load_to_registor(&mut self, registor: u8) {
-        if !(5..=9).contains(&registor) {
-            self.registors[registor as usize] = self.bus_c;
+    fn load_to_register(&mut self, register: u8) {
+        if !(5..=9).contains(&register) {
+            self.registers[register as usize] = self.bus_c;
         }
     }
 
@@ -166,23 +166,23 @@ impl Datapath {
             });
         }
         if signals.enc {
-            let before = self.get_registor(signals.c);
-            self.load_to_registor(signals.c);
-            events.registor_changed = Some(SlotChangeEvent {
+            let before = self.get_register(signals.c);
+            self.load_to_register(signals.c);
+            events.register_changed = Some(SlotChangeEvent {
                 slot: signals.c as usize,
                 before,
-                after: self.get_registor(signals.c),
+                after: self.get_register(signals.c),
             });
         }
     }
 
     pub fn reset(&mut self) {
-        self.registors = DEFAULT_REGISTOR_VALUES;
+        self.registers = DEFAULT_REGISTER_VALUES;
         self.mar = 0;
         self.mbr = 0;
     }
 
-    pub fn get_registors(&self) -> &RegistorBank {
-        &self.registors
+    pub fn get_registers(&self) -> &RegisterBank {
+        &self.registers
     }
 }

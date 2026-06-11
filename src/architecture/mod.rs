@@ -41,11 +41,11 @@ impl Cpu {
         (prev_mar, mar, events)
     }
 
-    pub fn get_registors(&self) -> (u16, u16, &[u16; 16]) {
+    pub fn get_registers(&self) -> (u16, u16, &[u16; 16]) {
         (
             self.datapath.mar,
             self.datapath.mbr,
-            self.datapath.get_registors(),
+            self.datapath.get_registers(),
         )
     }
 

@@ -1,4 +1,4 @@
-use crate::architecture::datapath::get_registor_index;
+use crate::architecture::datapath::get_register_index;
 use crate::parsers::mal::errors::ParsingErrorType;
 use crate::parsers::mal::mir_builder::ControlSignalsBuilder;
 use regex::{Captures, Regex};
@@ -89,13 +89,13 @@ fn parse_expr<'a, 'b>(
     };
     // Verificações
     let dest = dest.as_str();
-    let dest_index = get_registor_index(dest);
-    let dest_is_registor = dest_index.is_some();
+    let dest_index = get_register_index(dest);
+    let dest_is_register = dest_index.is_some();
     let dest_is_mbr = dest == "mbr";
     let dest_is_mar = dest == "mar";
     let dest_is_alu = dest == "alu";
     // Ativar ENC se tentar atribuir a um registrador
-    if dest_is_registor {
+    if dest_is_register {
         mir.set_bool("enc", true)?;
         mir.set_int("c", dest_index.unwrap())?;
     }
@@ -103,8 +103,8 @@ fn parse_expr<'a, 'b>(
     if dest_is_mbr {
         mir.set_bool("mbr", true)?;
     }
-    if !(dest_is_registor || dest_is_mar || dest_is_mbr || dest_is_alu) {
-        return Err(ParsingErrorType::InvalidRegistor(dest));
+    if !(dest_is_register || dest_is_mar || dest_is_mbr || dest_is_alu) {
+        return Err(ParsingErrorType::InvalidRegister(dest));
     }
     // Começo da operação
     let mut operation = operation.as_str();
@@ -138,11 +138,11 @@ fn parse_expr<'a, 'b>(
     if dest_is_mar {
         if let Some(name) = transparency {
             let name = name.as_str();
-            let Some(index) = get_registor_index(name) else {
+            let Some(index) = get_register_index(name) else {
                 if name == "mar" || name == "mbr" {
                     return Err(ParsingErrorType::ImpossiblePath(dest, name));
                 }
-                return Err(ParsingErrorType::InvalidRegistor(name));
+                return Err(ParsingErrorType::InvalidRegister(name));
             };
             // Caso B esteja ocupado e A tenha o valor desejado em B, verifica se há possibilidade de
             // trocar A e B sem causar problemas, mas só se isso não já tiver sido feito e !amux
@@ -216,13 +216,13 @@ where
         mir.set_bool("amux", true)?;
         return Ok(());
     } else if name == "mar" {
-        return Err(ParsingErrorType::IlegalRegistor(
+        return Err(ParsingErrorType::IlegalRegister(
             name,
             op.get(0).unwrap().as_str(),
         ));
     }
-    let Some(index) = get_registor_index(name) else {
-        return Err(ParsingErrorType::InvalidRegistor(name));
+    let Some(index) = get_register_index(name) else {
+        return Err(ParsingErrorType::InvalidRegister(name));
     };
     mir.set_bool("amux", false)?;
     mir.set_int("a", index)?;
@@ -241,13 +241,13 @@ fn set_reg_b<'a, 'b>(
     };
     let name = name.as_str();
     if name == "mbr" || name == "mar" {
-        return Err(ParsingErrorType::IlegalRegistor(
+        return Err(ParsingErrorType::IlegalRegister(
             name,
             op.get(0).unwrap().as_str(),
         ));
     }
-    let Some(index) = get_registor_index(name) else {
-        return Err(ParsingErrorType::InvalidRegistor(name));
+    let Some(index) = get_register_index(name) else {
+        return Err(ParsingErrorType::InvalidRegister(name));
     };
     // Caso B esteja ocupado e A tenha o valor desejado em B, verifica se há possibilidade de
     // trocar A e B sem causar problemas, mas só se mar vai ser setado e !amux

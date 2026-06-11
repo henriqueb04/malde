@@ -1,7 +1,7 @@
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct MachineEvents {
     pub memory_changed: Option<SlotChangeEvent>,
-    pub registor_changed: Option<SlotChangeEvent>,
+    pub register_changed: Option<SlotChangeEvent>,
     pub mar_changed: Option<NamedChangeEvent>,
     pub mbr_changed: Option<NamedChangeEvent>,
     pub syscall: bool,

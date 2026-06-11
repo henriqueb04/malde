@@ -37,10 +37,10 @@ impl Display for ParsingError<'_> {
 pub enum ParsingErrorType<'a> {
     SignalAlreadyDefined(ValueAlreadySet<'a>),
     InvalidExpression(&'a str),
-    InvalidRegistor(&'a str),
+    InvalidRegister(&'a str),
     InvalidCondition(&'a str),
     ImpossiblePath(&'a str, &'a str),
-    IlegalRegistor(&'a str, &'a str),
+    IlegalRegister(&'a str, &'a str),
     UnrecognizedSymbol(&'a str),
     MicroinstructionOverflow,
 }
@@ -67,14 +67,14 @@ impl<'a> Display for ParsingErrorType<'a> {
                 )
             }
             Self::InvalidExpression(expr) => write!(f, "Expressão inválida: \"{}\"", expr),
-            Self::InvalidRegistor(name) => write!(f, "Registrador inválido: {}", name),
+            Self::InvalidRegister(name) => write!(f, "Registrador inválido: {}", name),
             Self::InvalidCondition(cond) => write!(f, "Condição de if inválida: {}", cond),
             Self::ImpossiblePath(dest, expr) => write!(
                 f,
                 "Não é possível levar a expressão \"{}\" para o registrador {}",
                 expr, dest
             ),
-            Self::IlegalRegistor(reg, expr) => write!(
+            Self::IlegalRegister(reg, expr) => write!(
                 f,
                 "Não é possível colocar o registrador {} no barramento indicado na expressão \"{}\"",
                 reg, expr

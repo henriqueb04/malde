@@ -1,4 +1,4 @@
-use crate::architecture::datapath::RegistorBank;
+use crate::architecture::datapath::RegisterBank;
 use crate::architecture::events::MachineEvents;
 use crate::architecture::memory::{DATA_SEGMENT_START, Memory, MemoryArray, TEXT_SEGMENT_START};
 use std::cell::Ref;
@@ -13,7 +13,7 @@ use crate::{
 };
 
 pub use crate::architecture::{
-    datapath::REGISTOR_NAMES, memory::MEMORY_SIZE, signals::ControlSignals,
+    datapath::REGISTER_NAMES, memory::MEMORY_SIZE, signals::ControlSignals,
 };
 
 #[derive(Default)]
@@ -122,7 +122,7 @@ impl VM {
         }
         self.cpu.reset();
     }
-    pub fn get_registors(&self) -> (u16, u16, &RegistorBank) {
-        self.cpu.get_registors()
+    pub fn get_registers(&self) -> (u16, u16, &RegisterBank) {
+        self.cpu.get_registers()
     }
 }
