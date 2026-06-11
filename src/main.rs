@@ -9,7 +9,10 @@ use std::fs;
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 
-use crate::virtual_machine::{ControlSignals, MEMORY_SIZE, REGISTOR_NAMES, VM};
+use crate::{
+    architecture::events::MachineEvents,
+    virtual_machine::{MEMORY_SIZE, REGISTOR_NAMES, VM},
+};
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
@@ -23,13 +26,16 @@ fn main() -> eframe::Result {
     )
 }
 
+#[derive(Default)]
 pub struct MyApp {
     macroprogram: Option<String>,
     microprogram: Option<String>,
     msg_modal_open: bool,
     msg_modal_text: String,
-    mir: Option<ControlSignals>,
     cur_mpc: usize,
+    next_mpc: usize,
+    selected: usize,
+    last_events: MachineEvents,
     scroll_mpc: Option<usize>,
     mem_view_index: usize,
     vm: VM,
@@ -43,21 +49,19 @@ impl eframe::App for MyApp {
             .max(ui.spacing().interact_size.y);
         egui::Panel::right("right_panel")
             .resizable(true)
-            .min_size(350.0)
+            .default_size(350.0)
             .show_inside(ui, |ui| {
                 if self.vm.is_ready() {
                     ui.horizontal(|ui| {
                         if ui.button("Próxima microinstrução").clicked() {
                             self.advance_microinstruction();
-                            self.mir = Some(self.vm.get_control_signals().clone());
                         }
                         if ui.button("Resetar").clicked() {
                             self.reset_vm();
                         }
                     });
-                }
-                ui.separator();
-                if let Some(mir) = self.mir.as_ref() {
+                    ui.separator();
+                    let mir = &self.vm.get_microinstructions()[self.selected].mir;
                     ui.set_min_width(50.0);
                     ui.strong("Registrador de Microinstrução:");
                     const MIR_NAMES: [&str; 13] = [
@@ -135,6 +139,7 @@ impl eframe::App for MyApp {
                         })
                         .body(|mut body| {
                             body.row(text_height, |mut row| {
+                                row.set_selected(self.last_events.mar_changed.is_some());
                                 row.col(|ui| {
                                     ui.label("");
                                 });
@@ -142,10 +147,16 @@ impl eframe::App for MyApp {
                                     ui.label("mar");
                                 });
                                 row.col(|ui| {
-                                    ui.label(mar.to_string());
+                                    let label = egui::Label::new(mar.to_string());
+                                    if let Some(event) = &self.last_events.mar_changed {
+                                        ui.add(label).on_hover_text(format!("Anterior: {}", event.before));
+                                    } else {
+                                        ui.add(label);
+                                    }
                                 });
                             });
                             body.row(text_height, |mut row| {
+                                row.set_selected(self.last_events.mbr_changed.is_some());
                                 row.col(|ui| {
                                     ui.label("");
                                 });
@@ -153,12 +164,22 @@ impl eframe::App for MyApp {
                                     ui.label("mbr");
                                 });
                                 row.col(|ui| {
-                                    ui.label(mbr.to_string());
+                                    let label = egui::Label::new(mbr.to_string());
+                                    if let Some(event) = &self.last_events.mbr_changed {
+                                        ui.add(label).on_hover_text(format!("Anterior: {}", event.before));
+                                    } else {
+                                        ui.add(label);
+                                    }
                                 });
                             });
                             body.rows(text_height, 16, |mut row| {
                                 let row_index = row.index();
                                 let reg_name = REGISTOR_NAMES.get(row_index).map_or("", |v| v);
+                                if let Some(event) = &self.last_events.registor_changed
+                                    && event.slot == row_index
+                                {
+                                    row.set_selected(true);
+                                }
                                 row.col(|ui| {
                                     ui.label(row_index.to_string());
                                 });
@@ -166,14 +187,19 @@ impl eframe::App for MyApp {
                                     ui.label(reg_name);
                                 });
                                 row.col(|ui| {
-                                    if reg_name == "ir"
+                                    let label = egui::Label::new(if reg_name == "ir"
                                         || reg_name == "tir"
                                         || reg_name == "amask"
                                         || reg_name == "smask"
                                     {
-                                        ui.label(format!("{:016b}", registors[row_index]));
+                                        format!("{:016b}", registors[row_index])
                                     } else {
-                                        ui.label(format!("{}", registors[row_index] as i16));
+                                        format!("{}", registors[row_index] as i16)
+                                    });
+                                    if let Some(event) = &self.last_events.registor_changed && row_index == event.slot {
+                                        ui.add(label).on_hover_text(format!("Anterior: {}", event.before));
+                                    } else {
+                                        ui.add(label);
                                     }
                                 });
                             });
@@ -224,9 +250,11 @@ impl eframe::App for MyApp {
                     .striped(true)
                     .resizable(false)
                     .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                    .column(Column::auto())
                     .column(Column::remainder().clip(true))
                     .min_scrolled_height(0.0)
-                    .max_scroll_height(available_height);
+                    .max_scroll_height(available_height)
+                    .sense(egui::Sense::click());
                 if let Some(mpc) = self.scroll_mpc.take() {
                     mal_table = mal_table.scroll_to_row(mpc, None);
                 }
@@ -234,14 +262,31 @@ impl eframe::App for MyApp {
                 mal_table.body(|body| {
                     body.rows(text_height, mics.len(), |mut row| {
                         let row_index = row.index();
-                        row.set_selected(row_index == self.cur_mpc);
+                        row.set_selected(row_index == self.selected);
                         row.col(|ui| {
-                            ui.monospace(
-                                mics.get(row_index)
-                                    .map(|v| v.content.as_str())
-                                    .unwrap_or(""),
-                            );
+                            if row_index == self.cur_mpc {
+                                ui.strong(row_index.to_string());
+                            } else {
+                                ui.label(row_index.to_string());
+                            }
                         });
+                        row.col(|ui| {
+                            let text = mics
+                                .get(row_index)
+                                .map(|v| v.content.as_str())
+                                .unwrap_or("");
+                            if row_index == self.next_mpc {
+                                ui.label(egui::RichText::new(text).monospace().strong())
+                                    .on_hover_text("Próxima microinstrução");
+                            } else if row_index == self.cur_mpc {
+                                ui.monospace(text).on_hover_text("Microinstrução executada");
+                            } else {
+                                ui.monospace(text);
+                            }
+                        });
+                        if row.response().clicked() {
+                            self.selected = row_index;
+                        }
                     });
                 });
             }
@@ -277,13 +322,8 @@ impl MyApp {
             // FIXME: retirar caminhos fixos
             macroprogram: Some(String::from("/home/henrique/code/mac1/teste2.asm")),
             microprogram: Some(String::from("/home/henrique/code/mac1/malde.mal")),
-            msg_modal_open: false,
-            msg_modal_text: String::new(),
-            mir: None,
-            cur_mpc: 0,
-            mem_view_index: 0,
-            scroll_mpc: None,
             vm: VM::new(),
+            ..Default::default()
         }
     }
     fn assemble_micro(&mut self, path: &str) {
@@ -306,12 +346,16 @@ impl MyApp {
     }
     fn reset_vm(&mut self) {
         self.vm.reset();
-        self.mir = None;
+        self.selected = 0;
+        self.cur_mpc = 0;
+        self.next_mpc = 0;
     }
 
     fn advance_microinstruction(&mut self) {
-        (_, self.cur_mpc, _) = self.vm.advance_microinstruction();
+        (self.next_mpc, self.cur_mpc, self.last_events) = self.vm.advance_microinstruction();
         self.scroll_mpc = Some(self.cur_mpc);
+        self.selected = self.cur_mpc;
+        // println!("{:?}", self.last_events);
     }
 
     ////////////

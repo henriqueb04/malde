@@ -129,7 +129,7 @@ impl Datapath {
     }
 
     fn load_to_registor(&mut self, registor: u8) {
-        if registor < 5 || registor > 9 {
+        if !(5..=9).contains(&registor) {
             self.registors[registor as usize] = self.bus_c;
         }
     }

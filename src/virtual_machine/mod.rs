@@ -33,6 +33,12 @@ pub struct VM {
     microinstructions: Vec<Microinstruction>,
 }
 
+impl Default for VM {
+    fn default() -> Self {
+        VM::new()
+    }
+}
+
 impl VM {
     pub fn new() -> Self {
         let memory = Rc::new(RefCell::new(Memory::new()));
@@ -115,9 +121,6 @@ impl VM {
             self.initial_memory = Some(mem);
         }
         self.cpu.reset();
-    }
-    pub fn get_control_signals(&self) -> &ControlSignals {
-        self.cpu.get_control_signals()
     }
     pub fn get_registors(&self) -> (u16, u16, &RegistorBank) {
         self.cpu.get_registors()

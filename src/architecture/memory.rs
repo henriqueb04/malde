@@ -39,7 +39,7 @@ impl Memory {
         self.memory[start..start + len].copy_from_slice(&data[..len]);
     }
 
-    pub fn request_rd(&mut self, mar: &u16, mbr: &mut u16) {
+    pub fn request_rd(&mut self, mar: &u16, mbr: &mut u16, events: &mut MachineEvents) {
         self.rd_clock_count += 1;
         if self.rd_clock_count < 2 {
             return;
@@ -49,9 +49,13 @@ impl Memory {
                 "MAR address changed from {} to {} before response from memory! Ignoring...",
                 self.previous_mar, mar
             );
+            let before = *mbr;
             *mbr = self.memory[self.previous_mar as usize];
+            events.mbr_changed = Some(crate::architecture::events::NamedChangeEvent { before, after: *mbr })
         } else {
+            let before = *mbr;
             *mbr = self.memory[*mar as usize];
+            events.mbr_changed = Some(crate::architecture::events::NamedChangeEvent { before, after: *mbr })
         }
     }
 
@@ -107,7 +111,7 @@ impl Memory {
             self.previous_mar = *mar;
         }
         if *rd {
-            self.request_rd(mar, mbr);
+            self.request_rd(mar, mbr, events);
             self.previous_mar = *mar;
         }
     }
