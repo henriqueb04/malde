@@ -31,6 +31,7 @@ impl MicroMem {
 pub struct ControlUnit {
     pub signals: ControlSignals,
     pub micro_mem: Rc<RefCell<MicroMem>>,
+    pub prev_mpc: usize,
     pub mpc: usize,
 }
 
@@ -39,6 +40,7 @@ impl ControlUnit {
         ControlUnit {
             signals: ControlSignals::default(),
             micro_mem,
+            prev_mpc: 0,
             mpc: 0,
         }
     }
@@ -72,6 +74,7 @@ impl ControlUnit {
         if self.mpc >= self.micro_mem.borrow().len {
             println!("Microinstruction pc has gone out of bounds! Reseting to 0.");
         }
+        self.prev_mpc = old_mpc;
         (self.mpc, old_mpc)
     }
 }

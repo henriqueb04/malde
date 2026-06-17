@@ -1,5 +1,5 @@
 use crate::architecture::{
-    events::{MachineEvents, SlotChangeEvent},
+    events::{MachineEvents, SlotChangeEvent, SlotReadEvent},
     signals::ControlSignals,
 };
 
@@ -42,6 +42,7 @@ impl Memory {
     pub fn request_rd(&mut self, mar: &u16, mbr: &mut u16, events: &mut MachineEvents) {
         self.rd_clock_count += 1;
         if self.rd_clock_count < 2 {
+            events.memory_read_start = Some(SlotReadEvent { slot: *mar as usize, });
             return;
         }
         if self.previous_mar != *mar {

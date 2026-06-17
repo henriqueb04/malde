@@ -4,14 +4,14 @@ mod architecture;
 mod parsers;
 mod virtual_machine;
 
-use std::fs;
+use std::{fmt::Display, fs};
 
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 
 use crate::{
     architecture::events::MachineEvents,
-    virtual_machine::{MEMORY_SIZE, REGISTER_NAMES, VM},
+    virtual_machine::{MEMORY_SIZE, REGISTER_NAMES, VM, VMResponse},
 };
 
 fn main() -> eframe::Result {
@@ -26,12 +26,45 @@ fn main() -> eframe::Result {
     )
 }
 
+#[derive(Debug, Default, PartialEq, Eq)]
+enum ValueFormatType {
+    #[default]
+    Decimal,
+    Hexadecimal,
+    Binary,
+}
+
+impl Display for ValueFormatType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                ValueFormatType::Decimal => "Decimal",
+                ValueFormatType::Hexadecimal => "Hexadecimal",
+                ValueFormatType::Binary => "Binário",
+            }
+        )
+    }
+}
+
+impl ValueFormatType {
+    pub const fn table_columns(&self) -> usize {
+        match self {
+            ValueFormatType::Decimal => 12,
+            ValueFormatType::Hexadecimal => 12,
+            ValueFormatType::Binary => 6,
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct MyApp {
     macroprogram: Option<String>,
     microprogram: Option<String>,
     msg_modal_open: bool,
     msg_modal_text: String,
+    value_format: ValueFormatType,
     cur_mpc: usize,
     next_mpc: usize,
     selected: usize,
@@ -55,6 +88,9 @@ impl eframe::App for MyApp {
                     ui.horizontal(|ui| {
                         if ui.button("Próxima microinstrução").clicked() {
                             self.advance_microinstruction();
+                        }
+                        if ui.button("Próxima macroinstrução").clicked() {
+                            self.advance_macroinstruction();
                         }
                         if ui.button("Resetar").clicked() {
                             self.reset_vm();
@@ -147,9 +183,12 @@ impl eframe::App for MyApp {
                                     ui.label("mar");
                                 });
                                 row.col(|ui| {
-                                    let label = egui::Label::new(mar.to_string());
+                                    let label = egui::Label::new(self.format_value(mar as usize));
                                     if let Some(event) = &self.last_events.mar_changed {
-                                        ui.add(label).on_hover_text(format!("Anterior: {}", event.before));
+                                        ui.add(label).on_hover_text(format!(
+                                            "Anterior: {}",
+                                            self.format_value(event.before as usize)
+                                        ));
                                     } else {
                                         ui.add(label);
                                     }
@@ -164,9 +203,12 @@ impl eframe::App for MyApp {
                                     ui.label("mbr");
                                 });
                                 row.col(|ui| {
-                                    let label = egui::Label::new(mbr.to_string());
+                                    let label = egui::Label::new(self.format_value(mbr as usize));
                                     if let Some(event) = &self.last_events.mbr_changed {
-                                        ui.add(label).on_hover_text(format!("Anterior: {}", event.before));
+                                        ui.add(label).on_hover_text(format!(
+                                            "Anterior: {}",
+                                            self.format_value(event.before as usize)
+                                        ));
                                     } else {
                                         ui.add(label);
                                     }
@@ -187,17 +229,24 @@ impl eframe::App for MyApp {
                                     ui.label(reg_name);
                                 });
                                 row.col(|ui| {
-                                    let label = egui::Label::new(if reg_name == "ir"
-                                        || reg_name == "tir"
-                                        || reg_name == "amask"
-                                        || reg_name == "smask"
+                                    let label = egui::Label::new(
+                                        if reg_name == "ir"
+                                            || reg_name == "tir"
+                                            || reg_name == "amask"
+                                            || reg_name == "smask"
+                                        {
+                                            format!("0b{:016b}", registers[row_index])
+                                        } else {
+                                            self.format_value(registers[row_index] as usize)
+                                        },
+                                    );
+                                    if let Some(event) = &self.last_events.register_changed
+                                        && row_index == event.slot
                                     {
-                                        format!("{:016b}", registers[row_index])
-                                    } else {
-                                        format!("{}", registers[row_index] as i16)
-                                    });
-                                    if let Some(event) = &self.last_events.register_changed && row_index == event.slot {
-                                        ui.add(label).on_hover_text(format!("Anterior: {}", event.before));
+                                        ui.add(label).on_hover_text(format!(
+                                            "Anterior: {}",
+                                            self.format_value(event.before as usize)
+                                        ));
                                     } else {
                                         ui.add(label);
                                     }
@@ -352,7 +401,28 @@ impl MyApp {
     }
 
     fn advance_microinstruction(&mut self) {
-        (self.next_mpc, self.cur_mpc, self.last_events) = self.vm.advance_microinstruction();
+        let VMResponse {
+            mpc,
+            prev_mpc,
+            last_events,
+        } = self.vm.advance_microinstruction();
+        self.next_mpc = mpc;
+        self.cur_mpc = prev_mpc;
+        self.last_events = last_events;
+        self.scroll_mpc = Some(self.cur_mpc);
+        self.selected = self.cur_mpc;
+        // println!("{:?}", self.last_events);
+    }
+
+    fn advance_macroinstruction(&mut self) {
+        let VMResponse {
+            mpc,
+            prev_mpc,
+            last_events,
+        } = self.vm.advance_macroinstruction();
+        self.next_mpc = mpc;
+        self.cur_mpc = prev_mpc;
+        self.last_events = last_events;
         self.scroll_mpc = Some(self.cur_mpc);
         self.selected = self.cur_mpc;
         // println!("{:?}", self.last_events);
@@ -360,6 +430,15 @@ impl MyApp {
 
     ////////////
     // UI
+
+    fn format_value(&self, value: usize) -> String {
+        let value = value as i16;
+        match self.value_format {
+            ValueFormatType::Decimal => format!("{:05}", value),
+            ValueFormatType::Hexadecimal => format!("0x{:04X}", value),
+            ValueFormatType::Binary => format!("0b{:016b}", value),
+        }
+    }
 
     fn show_error_modal(&mut self, msg: String) {
         println!("{}", msg);
@@ -375,7 +454,7 @@ impl MyApp {
             .max(ui.spacing().interact_size.y);
         let available_height = ui.available_height();
         let n_rows = 16;
-        let n_cols = 12;
+        let n_cols = self.value_format.table_columns();
         let table = TableBuilder::new(ui)
             .striped(true)
             .resizable(false)
@@ -400,18 +479,41 @@ impl MyApp {
                     let row_index = self.mem_view_index + row.index() * n_cols;
                     row.col(|ui| {
                         if row_index < MEMORY_SIZE {
-                            ui.strong(row_index.to_string());
+                            ui.strong(self.format_value(row_index));
                         } else {
                             ui.strong("---");
                         }
                     });
                     for i in 0..n_cols {
                         row.col(|ui| {
-                            if let Some(v) = memory.get(row_index + i).map(|v| *v as i16) {
-                                // ui.label(format!("{:#06x}", v));
-                                ui.label(format!("{:05}", v));
+                            ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+                            let mem_slot = row_index + i;
+                            let before =
+                                self.last_events.memory_changed.clone().and_then(|event| {
+                                    if event.slot == mem_slot {
+                                        Some(event.before)
+                                    } else {
+                                        None
+                                    }
+                                });
+                            let text = if let Some(v) = memory.get(mem_slot) {
+                                self.format_value(*v as usize)
                             } else {
-                                ui.label("---");
+                                String::from("---")
+                            };
+                            if let Some(before) = before {
+                                // frame = frame.fill(ui.visuals().selection.bg_fill);
+                                ui.painter().rect_filled(
+                                    ui.max_rect(),
+                                    0,
+                                    ui.visuals().selection.bg_fill,
+                                );
+                                ui.strong(text).on_hover_text(format!(
+                                    "Anterior: {}",
+                                    self.format_value(before as usize)
+                                ));
+                            } else {
+                                ui.label(text);
                             }
                         });
                     }
@@ -427,6 +529,21 @@ impl MyApp {
                     self.mem_view_index = new_index;
                 }
             }
+            egui::ComboBox::from_label("Visualização")
+                .selected_text(self.value_format.to_string())
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut self.value_format,
+                        ValueFormatType::Decimal,
+                        "Decimal",
+                    );
+                    ui.selectable_value(
+                        &mut self.value_format,
+                        ValueFormatType::Hexadecimal,
+                        "Hexadecimal",
+                    );
+                    ui.selectable_value(&mut self.value_format, ValueFormatType::Binary, "Binário");
+                });
         });
     }
 }

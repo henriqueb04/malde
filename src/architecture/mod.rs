@@ -37,8 +37,8 @@ impl Cpu {
             &mut self.datapath.mbr,
             &mut events,
         );
-        let (prev_mar, mar) = self.control_unit.advance(&self.datapath.alu_sigs);
-        (prev_mar, mar, events)
+        let (mpc, prev_mpc) = self.control_unit.advance(&self.datapath.alu_sigs);
+        (mpc, prev_mpc, events)
     }
 
     pub fn get_registers(&self) -> (u16, u16, &[u16; 16]) {
@@ -52,9 +52,5 @@ impl Cpu {
     pub fn reset(&mut self) {
         self.datapath.reset();
         self.control_unit.mpc = 0;
-    }
-
-    pub fn get_control_signals(&self) -> &ControlSignals {
-        &self.control_unit.signals
     }
 }

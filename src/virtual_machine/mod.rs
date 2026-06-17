@@ -12,9 +12,14 @@ use crate::{
     },
 };
 
-pub use crate::architecture::{
-    datapath::REGISTER_NAMES, memory::MEMORY_SIZE, signals::ControlSignals,
-};
+pub use crate::architecture::{datapath::REGISTER_NAMES, memory::MEMORY_SIZE};
+
+#[derive(Debug, Default)]
+pub struct VMResponse {
+    pub mpc: usize,
+    pub prev_mpc: usize,
+    pub last_events: MachineEvents,
+}
 
 #[derive(Default)]
 pub enum VMState {
@@ -31,6 +36,7 @@ pub struct VM {
     micro_mem: Rc<RefCell<MicroMem>>,
     cpu: Cpu,
     microinstructions: Vec<Microinstruction>,
+    // cur_instruction: usize,
 }
 
 impl Default for VM {
@@ -47,12 +53,12 @@ impl VM {
             keywords: HashMap::from(
                 DEFAULT_KEYWORDS.map(|(k, v)| (String::from(k), String::from(v))),
             ),
-            state: VMState::Halted,
             memory: Rc::clone(&memory),
             micro_mem: Rc::clone(&micro_mem),
             cpu: Cpu::new(Rc::clone(&memory), Rc::clone(&micro_mem)),
-            initial_memory: None,
+            state: VMState::Halted,
             microinstructions: Vec::new(),
+            initial_memory: None
         }
     }
 
@@ -104,12 +110,32 @@ impl VM {
     }
 
     // Cpu
-    pub fn advance_microinstruction(&mut self) -> (usize, usize, MachineEvents) {
+    pub fn advance_microinstruction(&mut self) -> VMResponse {
         match &self.state {
-            VMState::Active => self.cpu.advance_microinstruction(),
+            VMState::Active => {
+                let (prev_mar, mar, last_events) = self.cpu.advance_microinstruction();
+                VMResponse {
+                    mpc: prev_mar,
+                    prev_mpc: mar,
+                    last_events,
+                }
+            }
 
             _ => Default::default(),
         }
+    }
+    pub fn advance_macroinstruction(&mut self) -> VMResponse {
+        let mut res = VMResponse::default();
+        loop {
+            if let Some(slot) = res.last_events.memory_read_start.as_ref().map(|v| v.slot)
+                && slot < DATA_SEGMENT_START
+            {
+                // self.cur_instruction = slot;
+                break;
+            }
+            res = self.advance_microinstruction();
+        }
+        res
     }
     pub fn reset(&mut self) {
         self.state = VMState::Active;
