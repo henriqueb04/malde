@@ -1934,6 +1934,7 @@ dependencies = [
  "pretty_assertions",
  "regex",
  "rfd",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
