@@ -216,3 +216,44 @@ text :: ".text" (instruction ;*)*
 
 instruction :: (identifier :)* keyword (valuesimple | identifier)
 */
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn test_data() {
+        let source_map = SourceMap {
+            filename: "",
+            content: ".data
+                TESTE1: .word 1;
+                TESTE2: .word 1,2
+                TESTE3: .asciz \"St\n \\na\"
+                TESTE4: .byte 1,2,3,4;;;
+                TESTE5: .byte 'a', '\\n'
+",
+        };
+        let parser = ASMParser::new(source_map);
+        let mem = parser.parse().unwrap();
+        let expected = [
+            1u16,
+            1,
+            2,
+            'S' as u16,
+            't' as u16,
+            '\n' as u16,
+            ' ' as u16,
+            '\n' as u16,
+            'a' as u16,
+            0,
+            1,
+            2,
+            3,
+            4,
+            'a' as u16,
+            '\n' as u16
+        ];
+        assert_eq!(mem, expected);
+    }
+}
