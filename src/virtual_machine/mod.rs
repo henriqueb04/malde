@@ -1,6 +1,6 @@
 use crate::architecture::datapath::RegisterBank;
 use crate::architecture::events::MachineEvents;
-use crate::architecture::memory::{DATA_SEGMENT_START, Memory, MemoryArray, TEXT_SEGMENT_START};
+use crate::architecture::memory::{Memory, MemoryArray};
 use std::cell::Ref;
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
@@ -13,6 +13,7 @@ use crate::{
 };
 
 pub use crate::architecture::{datapath::REGISTER_NAMES, memory::MEMORY_SIZE};
+pub use crate::architecture::memory::{DATA_SEGMENT_START, TEXT_SEGMENT_START};
 
 #[derive(Debug, Default)]
 pub struct VMResponse {

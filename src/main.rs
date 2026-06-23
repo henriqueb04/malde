@@ -11,7 +11,9 @@ use egui_extras::{Column, TableBuilder};
 
 use crate::{
     architecture::events::MachineEvents,
-    virtual_machine::{MEMORY_SIZE, REGISTER_NAMES, VM, VMResponse},
+    virtual_machine::{
+        DATA_SEGMENT_START, MEMORY_SIZE, REGISTER_NAMES, TEXT_SEGMENT_START, VM, VMResponse,
+    },
 };
 
 fn main() -> eframe::Result {
@@ -28,8 +30,8 @@ fn main() -> eframe::Result {
 
 #[derive(Debug, Default, PartialEq, Eq)]
 enum ValueFormatType {
-    #[default]
     Decimal,
+    #[default]
     Hexadecimal,
     Binary,
 }
@@ -58,8 +60,38 @@ impl ValueFormatType {
     }
 }
 
+#[derive(Default, PartialEq, Eq)]
+enum MemGoto {
+    #[default]
+    Data,
+    Text,
+}
+
+impl MemGoto {
+    fn get_slot(&self) -> usize {
+        match self {
+            MemGoto::Data => DATA_SEGMENT_START,
+            MemGoto::Text => TEXT_SEGMENT_START,
+        }
+    }
+}
+
+impl Display for MemGoto {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                MemGoto::Data => format!(".data (0x{:04X})", DATA_SEGMENT_START),
+                MemGoto::Text => format!(".text (0x{:04X})", TEXT_SEGMENT_START),
+            }
+        )
+    }
+}
+
 #[derive(Default)]
 pub struct MyApp {
+    vm: VM,
     macroprogram: Option<String>,
     microprogram: Option<String>,
     msg_modal_open: bool,
@@ -71,7 +103,8 @@ pub struct MyApp {
     last_events: MachineEvents,
     scroll_mpc: Option<usize>,
     mem_view_index: usize,
-    vm: VM,
+    mem_goto: Option<MemGoto>,
+    last_mem_goto: MemGoto,
 }
 
 impl eframe::App for MyApp {
@@ -372,6 +405,7 @@ impl MyApp {
             macroprogram: Some(String::from("/home/henrique/code/mac1/teste2.asm")),
             microprogram: Some(String::from("/home/henrique/code/mac1/malde.mal")),
             vm: VM::new(),
+            mem_goto: Some(MemGoto::Data),
             ..Default::default()
         }
     }
@@ -447,6 +481,10 @@ impl MyApp {
     }
 
     fn show_mem_table(&mut self, ui: &mut egui::Ui) {
+        if let Some(goto) = self.mem_goto.take() {
+            self.mem_view_index = goto.get_slot();
+            self.last_mem_goto = goto;
+        }
         let memory = self.vm.get_memory();
         let text_height = egui::TextStyle::Body
             .resolve(ui.style())
@@ -543,6 +581,20 @@ impl MyApp {
                         "Hexadecimal",
                     );
                     ui.selectable_value(&mut self.value_format, ValueFormatType::Binary, "Binário");
+                });
+            egui::ComboBox::from_label("Memória")
+                .selected_text(self.last_mem_goto.to_string())
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut self.mem_goto,
+                        Some(MemGoto::Text),
+                        MemGoto::Text.to_string(),
+                    );
+                    ui.selectable_value(
+                        &mut self.mem_goto,
+                        Some(MemGoto::Data),
+                        MemGoto::Data.to_string(),
+                    );
                 });
         });
     }
