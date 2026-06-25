@@ -60,6 +60,29 @@ pub struct ControlSignals {
 
 pub const CONTROL_SIGNAL_NAMES_B: [&str; 6] = ["amux", "mbr", "mar", "rd", "wr", "enc"];
 pub const CONTROL_SIGNAL_NAMES_U: [&str; 6] = ["cond", "alu", "sh", "c", "b", "a"];
+pub const CONTROL_SIGNAL_NAMES: [&str; 13] = [
+    "amux", "cond", "alu", "sh", "mbr", "mar", "rd", "wr", "enc", "c", "b", "a", "addr",
+];
+
+impl ControlSignals {
+    pub fn to_array(&self) -> [usize; 13] {
+        [
+            self.amux as usize,
+            self.cond as usize,
+            self.alu as usize,
+            self.sh as usize,
+            self.mbr as usize,
+            self.mar as usize,
+            self.rd as usize,
+            self.wr as usize,
+            self.enc as usize,
+            self.c as usize,
+            self.b as usize,
+            self.a as usize,
+            self.addr as usize,
+        ]
+    }
+}
 
 impl From<&u64> for ControlSignals {
     #[rustfmt::skip]
@@ -123,7 +146,8 @@ mod tests {
             addr: 0b10101001,
         };
         let n: u64 = sigs.clone().into();
-        let expected: u64 = 0b1_01_10_00_10100_1001_0110_1111_0010101001_000000000000000000000000000000;
+        let expected: u64 =
+            0b1_01_10_00_10100_1001_0110_1111_0010101001_000000000000000000000000000000;
         println!("expected: {:b}", expected);
         println!("result  : {:b}", n);
         assert_eq!(n, expected);

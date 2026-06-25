@@ -2,7 +2,7 @@ mod errors;
 mod regex;
 
 use crate::{
-    architecture::memory::{MEMORY_SIZE, DATA_SEGMENT_START, TEXT_SEGMENT_START},
+    architecture::memory::{DATA_SEGMENT_START, MEMORY_SIZE, TEXT_SEGMENT_START},
     parsers::mac::regex::*,
 };
 use std::collections::HashMap;
@@ -314,6 +314,8 @@ impl<'a> ASMParser<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pretty_assertions::assert_eq;
+
     #[test]
     fn test_mem() {
         let keywords =
@@ -359,10 +361,6 @@ PRINT: LOCO TESTE4
             0b0000000000000100,
             0b0000000000000101,
         ];
-        for (i, s) in mem.0.iter().enumerate() {
-            println!("Got:      {:016b}", s);
-            println!("Expected: {:016b}", expected[i]);
-        }
         assert_eq!(mem.0, expected);
 
         let mut parser = ASMParser::new(&keywords);
@@ -403,16 +401,6 @@ TESTE8: .asciz \"abc\" // Comentário
             99,
             0,
         ];
-        for (i, &s) in mem.0.iter().enumerate() {
-            if s != expected[i] {
-                println!("---");
-            }
-            println!("Got:      {:016b}", s);
-            println!("Expected: {:016b}", expected[i]);
-            if s != expected[i] {
-                println!("---");
-            }
-        }
         assert_eq!(mem.0, expected);
     }
 }

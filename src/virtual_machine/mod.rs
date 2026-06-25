@@ -1,6 +1,7 @@
 use crate::architecture::datapath::RegisterBank;
-use crate::architecture::events::MachineEvents;
+use crate::architecture::events::EventHandler;
 use crate::architecture::memory::{Memory, MemoryArray};
+use log::trace;
 use std::cell::Ref;
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
@@ -12,14 +13,13 @@ use crate::{
     },
 };
 
-pub use crate::architecture::{datapath::REGISTER_NAMES, memory::MEMORY_SIZE};
 pub use crate::architecture::memory::{DATA_SEGMENT_START, TEXT_SEGMENT_START};
+pub use crate::architecture::{datapath::REGISTER_NAMES, memory::MEMORY_SIZE};
 
 #[derive(Debug, Default)]
 pub struct VMResponse {
     pub mpc: usize,
     pub prev_mpc: usize,
-    pub last_events: MachineEvents,
 }
 
 #[derive(Default)]
@@ -37,6 +37,8 @@ pub struct VM {
     micro_mem: Rc<RefCell<MicroMem>>,
     cpu: Cpu,
     microinstructions: Vec<Microinstruction>,
+    events: EventHandler,
+    stdout: String,
     // cur_instruction: usize,
 }
 
@@ -59,8 +61,17 @@ impl VM {
             cpu: Cpu::new(Rc::clone(&memory), Rc::clone(&micro_mem)),
             state: VMState::Halted,
             microinstructions: Vec::new(),
-            initial_memory: None
+            initial_memory: None,
+            events: EventHandler::default(),
+            stdout: String::new(),
         }
+    }
+
+    pub fn get_stdout(&self) -> &String {
+        &self.stdout
+    }
+    pub fn get_events(&self) -> &EventHandler {
+        &self.events
     }
 
     pub fn assemble_mic<'a>(&mut self, source: &'a str) -> Result<(), MALParsingError<'a>> {
@@ -111,34 +122,34 @@ impl VM {
     }
 
     // Cpu
-    pub fn advance_microinstruction(&mut self) -> VMResponse {
+    fn advance_microinstruction_no_clear_events(&mut self) -> VMResponse {
+        trace!("mic");
         match &self.state {
             VMState::Active => {
-                let (prev_mar, mar, last_events) = self.cpu.advance_microinstruction();
+                trace!("ac");
+                let (prev_mar, mar) = self.cpu.advance_microinstruction(&mut self.events);
                 VMResponse {
                     mpc: prev_mar,
                     prev_mpc: mar,
-                    last_events,
                 }
             }
-
             _ => Default::default(),
         }
     }
+    pub fn advance_microinstruction(&mut self) -> VMResponse {
+        self.events.clear();
+        self.advance_microinstruction_no_clear_events()
+    }
     pub fn advance_macroinstruction(&mut self) -> VMResponse {
+        self.events.clear();
         let mut res = VMResponse::default();
-        loop {
-            if let Some(slot) = res.last_events.memory_read_start.as_ref().map(|v| v.slot)
-                && slot < DATA_SEGMENT_START
-            {
-                // self.cur_instruction = slot;
-                break;
-            }
-            res = self.advance_microinstruction();
+        while self.events.instruction_reads.is_empty() {
+            res = self.advance_microinstruction_no_clear_events();
         }
         res
     }
     pub fn reset(&mut self) {
+        self.events.clear();
         self.state = VMState::Active;
         let mut memory = self.memory.borrow_mut();
         if let Some(mem) = self.initial_memory.take() {

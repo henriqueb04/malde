@@ -1,7 +1,5 @@
-use crate::architecture::{
-    events::{MachineEvents, SlotChangeEvent, SlotReadEvent},
-    signals::ControlSignals,
-};
+use crate::architecture::{events::EventHandler, signals::ControlSignals};
+use log::{info, warn};
 
 pub type MemoryArray = [u16; MEMORY_SIZE];
 
@@ -13,6 +11,7 @@ pub struct Memory {
     rd_clock_count: u8,
     wr_clock_count: u8,
     previous_mar: u16,
+    previous_mbr: u16,
     memory: MemoryArray,
 }
 
@@ -22,6 +21,7 @@ impl Memory {
             rd_clock_count: 0,
             wr_clock_count: 0,
             previous_mar: 0,
+            previous_mbr: 0,
             memory: [0; MEMORY_SIZE],
         }
     }
@@ -39,52 +39,39 @@ impl Memory {
         self.memory[start..start + len].copy_from_slice(&data[..len]);
     }
 
-    pub fn request_rd(&mut self, mar: &u16, mbr: &mut u16, events: &mut MachineEvents) {
+    pub fn request_rd(&mut self, mar: &u16, mbr: &mut u16, events: &mut EventHandler) {
         self.rd_clock_count += 1;
         if self.rd_clock_count < 2 {
-            events.memory_read_start = Some(SlotReadEvent { slot: *mar as usize, });
+            if *mar < DATA_SEGMENT_START as u16 {
+                events.instruction_read(*mar);
+            }
             return;
         }
         if self.previous_mar != *mar {
-            println!(
-                "MAR address changed from {} to {} before response from memory! Ignoring...",
-                self.previous_mar, mar
-            );
-            let before = *mbr;
-            *mbr = self.memory[self.previous_mar as usize];
-            events.mbr_changed = Some(crate::architecture::events::NamedChangeEvent { before, after: *mbr })
+            events.mar_conflict(self.previous_mar, *mar);
+            info!("mar conflict")
         } else {
             let before = *mbr;
             *mbr = self.memory[*mar as usize];
-            events.mbr_changed = Some(crate::architecture::events::NamedChangeEvent { before, after: *mbr })
+            events.mbr_write(before, *mbr);
         }
     }
 
-    fn request_wr(&mut self, mar: &u16, mbr: &mut u16, events: &mut MachineEvents) {
+    fn request_wr(&mut self, mar: &u16, mbr: &mut u16, events: &mut EventHandler) {
         self.wr_clock_count += 1;
         if self.wr_clock_count < 2 {
             return;
         }
         if self.previous_mar != *mar {
-            println!(
-                "MAR address changed from {} to {} before response from memory! Ignoring...",
-                self.previous_mar, mar
-            );
-            let before = self.memory[self.previous_mar as usize];
-            self.memory[self.previous_mar as usize] = *mbr;
-            events.memory_changed = Some(SlotChangeEvent {
-                slot: self.previous_mar as usize,
-                before,
-                after: self.memory[self.previous_mar as usize],
-            });
+            events.mar_conflict(self.previous_mar, *mar);
+            info!("mar conflict")
+        } else if self.previous_mbr != *mbr {
+            events.mbr_conflict(self.previous_mbr, *mbr);
+            info!("mbr conflict")
         } else {
             let before = self.memory[self.previous_mar as usize];
             self.memory[*mar as usize] = *mbr;
-            events.memory_changed = Some(SlotChangeEvent {
-                slot: *mar as usize,
-                before,
-                after: self.memory[*mar as usize],
-            });
+            events.memory_write(self.previous_mar, before, self.memory[*mar as usize]);
         }
     }
 
@@ -93,23 +80,23 @@ impl Memory {
         signals: &ControlSignals,
         mar: &u16,
         mbr: &mut u16,
-        events: &mut MachineEvents,
+        events: &mut EventHandler,
     ) {
         if *mar >= MEMORY_SIZE as u16 {
-            println!("Address {} is out of bounds! Ignoring...", mar);
+            warn!("Endereço {} é maior que memória! Ignorando...", mar);
         }
         let rd = &signals.rd;
         let wr = &signals.wr;
+        info!("{}, {}", rd, wr);
         if !rd && !wr {
             self.rd_clock_count = 0;
             self.wr_clock_count = 0;
             return;
-        } else if *rd && *wr {
-            println!("Both RW and WR are on at the same time!");
         }
         if *wr {
             self.request_wr(mar, mbr, events);
             self.previous_mar = *mar;
+            self.previous_mbr = *mbr;
         }
         if *rd {
             self.request_rd(mar, mbr, events);

@@ -4,19 +4,22 @@ mod architecture;
 mod parsers;
 mod virtual_machine;
 
+use log::{debug, error};
+
 use std::{fmt::Display, fs};
 
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 
 use crate::{
-    architecture::events::MachineEvents,
+    architecture::signals::CONTROL_SIGNAL_NAMES,
     virtual_machine::{
         DATA_SEGMENT_START, MEMORY_SIZE, REGISTER_NAMES, TEXT_SEGMENT_START, VM, VMResponse,
     },
 };
 
 fn main() -> eframe::Result {
+    env_logger::init();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([640.0, 240.0]),
         ..Default::default()
@@ -26,67 +29,6 @@ fn main() -> eframe::Result {
         options,
         Box::new(|_cc| Ok(Box::new(MyApp::new()))),
     )
-}
-
-#[derive(Debug, Default, PartialEq, Eq)]
-enum ValueFormatType {
-    Decimal,
-    #[default]
-    Hexadecimal,
-    Binary,
-}
-
-impl Display for ValueFormatType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                ValueFormatType::Decimal => "Decimal",
-                ValueFormatType::Hexadecimal => "Hexadecimal",
-                ValueFormatType::Binary => "Binário",
-            }
-        )
-    }
-}
-
-impl ValueFormatType {
-    pub const fn table_columns(&self) -> usize {
-        match self {
-            ValueFormatType::Decimal => 12,
-            ValueFormatType::Hexadecimal => 12,
-            ValueFormatType::Binary => 6,
-        }
-    }
-}
-
-#[derive(Default, PartialEq, Eq)]
-enum MemGoto {
-    #[default]
-    Data,
-    Text,
-}
-
-impl MemGoto {
-    fn get_slot(&self) -> usize {
-        match self {
-            MemGoto::Data => DATA_SEGMENT_START,
-            MemGoto::Text => TEXT_SEGMENT_START,
-        }
-    }
-}
-
-impl Display for MemGoto {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                MemGoto::Data => format!(".data (0x{:04X})", DATA_SEGMENT_START),
-                MemGoto::Text => format!(".text (0x{:04X})", TEXT_SEGMENT_START),
-            }
-        )
-    }
 }
 
 #[derive(Default)]
@@ -100,11 +42,11 @@ pub struct MyApp {
     cur_mpc: usize,
     next_mpc: usize,
     selected: usize,
-    last_events: MachineEvents,
     scroll_mpc: Option<usize>,
     mem_view_index: usize,
     mem_goto: Option<MemGoto>,
     last_mem_goto: MemGoto,
+    bottom_panel_tab: BottomPanelTab,
 }
 
 impl eframe::App for MyApp {
@@ -117,189 +59,20 @@ impl eframe::App for MyApp {
             .resizable(true)
             .default_size(350.0)
             .show_inside(ui, |ui| {
-                if self.vm.is_ready() {
-                    ui.horizontal(|ui| {
-                        if ui.button("Próxima microinstrução").clicked() {
-                            self.advance_microinstruction();
-                        }
-                        if ui.button("Próxima macroinstrução").clicked() {
-                            self.advance_macroinstruction();
-                        }
-                        if ui.button("Resetar").clicked() {
-                            self.reset_vm();
-                        }
-                    });
-                    ui.separator();
-                    let mir = &self.vm.get_microinstructions()[self.selected].mir;
-                    ui.set_min_width(50.0);
-                    ui.strong("Registrador de Microinstrução:");
-                    const MIR_NAMES: [&str; 13] = [
-                        "amux", "cond", "alu", "sh", "mbr", "mar", "rd", "wr", "enc", "c", "b",
-                        "a", "addr",
-                    ];
-                    let mir_vals = [
-                        mir.amux as i8,
-                        mir.cond as i8,
-                        mir.alu as i8,
-                        mir.sh as i8,
-                        mir.mbr as i8,
-                        mir.mar as i8,
-                        mir.rd as i8,
-                        mir.wr as i8,
-                        mir.enc as i8,
-                        mir.c as i8,
-                        mir.b as i8,
-                        mir.a as i8,
-                        mir.addr as i8,
-                    ];
-                    let mic_table = TableBuilder::new(ui)
-                        .auto_shrink([true; 2])
-                        .id_salt("mic_table")
-                        .striped(true)
-                        .resizable(false)
-                        .vscroll(false)
-                        .cell_layout(egui::Layout::top_down(egui::Align::Center))
-                        .column(Column::auto())
-                        .column(Column::remainder().clip(true).resizable(true))
-                        .min_scrolled_height(0.0);
-                    mic_table
-                        .header(text_height, |mut header| {
-                            header.col(|ui| {
-                                ui.strong("Registrador");
-                            });
-                            header.col(|ui| {
-                                ui.strong("Valor");
-                            });
-                        })
-                        .body(|body| {
-                            body.rows(text_height, 13, |mut row| {
-                                let row_index = row.index();
-                                row.col(|ui| {
-                                    ui.label(MIR_NAMES[row_index]);
-                                });
-                                row.col(|ui| {
-                                    ui.label(mir_vals[row_index].to_string());
-                                });
-                            });
-                        });
-                    ui.strong("Registradores:");
-                    let (mar, mbr, registers) = self.vm.get_registers();
-                    let reg_table = TableBuilder::new(ui)
-                        .auto_shrink([true; 2])
-                        .id_salt("reg_table")
-                        .striped(true)
-                        .resizable(false)
-                        .cell_layout(egui::Layout::top_down(egui::Align::Center))
-                        .column(Column::auto())
-                        .column(Column::auto())
-                        .column(Column::remainder().clip(true).resizable(true))
-                        .min_scrolled_height(0.0);
-                    reg_table
-                        .header(text_height, |mut header| {
-                            header.col(|ui| {
-                                ui.strong("Número");
-                            });
-                            header.col(|ui| {
-                                ui.strong("Registrador");
-                            });
-                            header.col(|ui| {
-                                ui.strong("Valor");
-                            });
-                        })
-                        .body(|mut body| {
-                            body.row(text_height, |mut row| {
-                                row.set_selected(self.last_events.mar_changed.is_some());
-                                row.col(|ui| {
-                                    ui.label("");
-                                });
-                                row.col(|ui| {
-                                    ui.label("mar");
-                                });
-                                row.col(|ui| {
-                                    let label = egui::Label::new(self.format_value(mar as usize));
-                                    if let Some(event) = &self.last_events.mar_changed {
-                                        ui.add(label).on_hover_text(format!(
-                                            "Anterior: {}",
-                                            self.format_value(event.before as usize)
-                                        ));
-                                    } else {
-                                        ui.add(label);
-                                    }
-                                });
-                            });
-                            body.row(text_height, |mut row| {
-                                row.set_selected(self.last_events.mbr_changed.is_some());
-                                row.col(|ui| {
-                                    ui.label("");
-                                });
-                                row.col(|ui| {
-                                    ui.label("mbr");
-                                });
-                                row.col(|ui| {
-                                    let label = egui::Label::new(self.format_value(mbr as usize));
-                                    if let Some(event) = &self.last_events.mbr_changed {
-                                        ui.add(label).on_hover_text(format!(
-                                            "Anterior: {}",
-                                            self.format_value(event.before as usize)
-                                        ));
-                                    } else {
-                                        ui.add(label);
-                                    }
-                                });
-                            });
-                            body.rows(text_height, 16, |mut row| {
-                                let row_index = row.index();
-                                let reg_name = REGISTER_NAMES.get(row_index).map_or("", |v| v);
-                                if let Some(event) = &self.last_events.register_changed
-                                    && event.slot == row_index
-                                {
-                                    row.set_selected(true);
-                                }
-                                row.col(|ui| {
-                                    ui.label(row_index.to_string());
-                                });
-                                row.col(|ui| {
-                                    ui.label(reg_name);
-                                });
-                                row.col(|ui| {
-                                    let label = egui::Label::new(
-                                        if reg_name == "ir"
-                                            || reg_name == "tir"
-                                            || reg_name == "amask"
-                                            || reg_name == "smask"
-                                        {
-                                            format!("0b{:016b}", registers[row_index])
-                                        } else {
-                                            self.format_value(registers[row_index] as usize)
-                                        },
-                                    );
-                                    if let Some(event) = &self.last_events.register_changed
-                                        && row_index == event.slot
-                                    {
-                                        ui.add(label).on_hover_text(format!(
-                                            "Anterior: {}",
-                                            self.format_value(event.before as usize)
-                                        ));
-                                    } else {
-                                        ui.add(label);
-                                    }
-                                });
-                            });
-                        });
-                }
+                self.side_panel_ui(ui);
             });
         egui::Panel::bottom("bottom_panel")
             .resizable(true)
-            .default_size(500.0)
+            .default_size(440.0)
             .show_inside(ui, |ui| {
-                self.show_mem_table(ui);
+                self.bottom_panel_ui(ui);
             });
         egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.horizontal(|ui| {
                 if ui.button("Carregar arquivo MAC").clicked()
                     && let Some(path) = rfd::FileDialog::new().pick_file()
                 {
-                    println!("Macroprograma: {}", path.display());
+                    debug!("Macroprograma: {}", path.display());
                     self.macroprogram = Some(path.display().to_string());
                 }
                 ui.label(self.macroprogram.as_deref().unwrap_or(""));
@@ -308,7 +81,7 @@ impl eframe::App for MyApp {
                 if ui.button("Carregar arquivo MAL").clicked()
                     && let Some(path) = rfd::FileDialog::new().pick_file()
                 {
-                    println!("Microprograma: {}", path.display());
+                    debug!("Microprograma: {}", path.display());
                     self.microprogram = Some(path.display().to_string());
                 }
                 ui.label(self.microprogram.as_deref().unwrap_or(""));
@@ -377,9 +150,7 @@ impl eframe::App for MyApp {
             let modal = egui::Modal::new(egui::Id::new("Msg modal 1")).show(ui, |ui| {
                 ui.set_width(300.0);
                 ui.heading("Message");
-
                 ui.label(self.msg_modal_text.clone());
-
                 egui::Sides::new().show(
                     ui,
                     |_ui| {},
@@ -390,7 +161,6 @@ impl eframe::App for MyApp {
                     },
                 )
             });
-
             if modal.should_close() {
                 self.msg_modal_open = false;
             }
@@ -435,31 +205,19 @@ impl MyApp {
     }
 
     fn advance_microinstruction(&mut self) {
-        let VMResponse {
-            mpc,
-            prev_mpc,
-            last_events,
-        } = self.vm.advance_microinstruction();
+        let VMResponse { mpc, prev_mpc } = self.vm.advance_microinstruction();
         self.next_mpc = mpc;
         self.cur_mpc = prev_mpc;
-        self.last_events = last_events;
         self.scroll_mpc = Some(self.cur_mpc);
         self.selected = self.cur_mpc;
-        // println!("{:?}", self.last_events);
     }
 
     fn advance_macroinstruction(&mut self) {
-        let VMResponse {
-            mpc,
-            prev_mpc,
-            last_events,
-        } = self.vm.advance_macroinstruction();
+        let VMResponse { mpc, prev_mpc } = self.vm.advance_macroinstruction();
         self.next_mpc = mpc;
         self.cur_mpc = prev_mpc;
-        self.last_events = last_events;
         self.scroll_mpc = Some(self.cur_mpc);
         self.selected = self.cur_mpc;
-        // println!("{:?}", self.last_events);
     }
 
     ////////////
@@ -475,12 +233,209 @@ impl MyApp {
     }
 
     fn show_error_modal(&mut self, msg: String) {
-        println!("{}", msg);
+        error!("{}", msg);
         self.msg_modal_text = msg;
         self.msg_modal_open = true;
     }
 
-    fn show_mem_table(&mut self, ui: &mut egui::Ui) {
+    fn side_panel_ui(&mut self, ui: &mut egui::Ui) {
+        let text_height = egui::TextStyle::Body
+            .resolve(ui.style())
+            .size
+            .max(ui.spacing().interact_size.y);
+        if self.vm.is_ready() {
+            ui.horizontal(|ui| {
+                if ui.button("Próxima microinstrução").clicked() {
+                    self.advance_microinstruction();
+                }
+                if ui.button("Próxima macroinstrução").clicked() {
+                    self.advance_macroinstruction();
+                }
+                if ui.button("Resetar").clicked() {
+                    self.reset_vm();
+                }
+            });
+            ui.separator();
+            let mir = &self.vm.get_microinstructions()[self.selected].mir;
+            ui.set_min_width(50.0);
+            ui.strong("Registrador de Microinstrução:");
+            let mir_vals = mir.to_array();
+            let mic_table = TableBuilder::new(ui)
+                .auto_shrink([true; 2])
+                .id_salt("mic_table")
+                .striped(true)
+                .resizable(false)
+                .vscroll(false)
+                .cell_layout(egui::Layout::top_down(egui::Align::Center))
+                .column(Column::auto())
+                .column(Column::remainder().clip(true).resizable(true))
+                .min_scrolled_height(0.0);
+            mic_table
+                .header(text_height, |mut header| {
+                    header.col(|ui| {
+                        ui.strong("Registrador");
+                    });
+                    header.col(|ui| {
+                        ui.strong("Valor");
+                    });
+                })
+                .body(|body| {
+                    body.rows(text_height, 13, |mut row| {
+                        let row_index = row.index();
+                        row.col(|ui| {
+                            ui.label(CONTROL_SIGNAL_NAMES[row_index]);
+                        });
+                        row.col(|ui| {
+                            ui.label(mir_vals[row_index].to_string());
+                        });
+                    });
+                });
+            ui.strong("Registradores:");
+            let (mar, mbr, registers) = self.vm.get_registers();
+            let reg_table = TableBuilder::new(ui)
+                .auto_shrink([true; 2])
+                .id_salt("reg_table")
+                .striped(true)
+                .resizable(false)
+                .cell_layout(egui::Layout::top_down(egui::Align::Center))
+                .column(Column::auto())
+                .column(Column::auto())
+                .column(Column::remainder().clip(true).resizable(true))
+                .min_scrolled_height(0.0);
+            reg_table
+                .header(text_height, |mut header| {
+                    header.col(|ui| {
+                        ui.strong("Número");
+                    });
+                    header.col(|ui| {
+                        ui.strong("Registrador");
+                    });
+                    header.col(|ui| {
+                        ui.strong("Valor");
+                    });
+                })
+                .body(|mut body| {
+                    body.row(text_height, |mut row| {
+                        row.set_selected(self.vm.get_events().mar_written.is_some());
+                        row.col(|ui| {
+                            ui.label("");
+                        });
+                        row.col(|ui| {
+                            ui.label("mar");
+                        });
+                        row.col(|ui| {
+                            let label = egui::Label::new(self.format_value(mar as usize));
+                            if let Some(event) = &self.vm.get_events().mar_written {
+                                ui.add(label).on_hover_text(format!(
+                                    "Anterior: {}",
+                                    self.format_value(event.before as usize)
+                                ));
+                            } else {
+                                ui.add(label);
+                            }
+                        });
+                    });
+                    body.row(text_height, |mut row| {
+                        row.set_selected(self.vm.get_events().mbr_written.is_some());
+                        row.col(|ui| {
+                            ui.label("");
+                        });
+                        row.col(|ui| {
+                            ui.label("mbr");
+                        });
+                        row.col(|ui| {
+                            let label = egui::Label::new(self.format_value(mbr as usize));
+                            if let Some(event) = &self.vm.get_events().mbr_written {
+                                ui.add(label).on_hover_text(format!(
+                                    "Anterior: {}",
+                                    self.format_value(event.before as usize)
+                                ));
+                            } else {
+                                ui.add(label);
+                            }
+                        });
+                    });
+                    body.rows(text_height, 16, |mut row| {
+                        let row_index = row.index();
+                        let reg_name = REGISTER_NAMES.get(row_index).map_or("", |v| v);
+                        if self
+                            .vm
+                            .get_events()
+                            .register_writes
+                            .contains_key(&(row_index as u8))
+                        {
+                            row.set_selected(true);
+                        }
+                        row.col(|ui| {
+                            ui.label(row_index.to_string());
+                        });
+                        row.col(|ui| {
+                            ui.label(reg_name);
+                        });
+                        row.col(|ui| {
+                            let label = egui::Label::new(
+                                if reg_name == "ir"
+                                    || reg_name == "tir"
+                                    || reg_name == "amask"
+                                    || reg_name == "smask"
+                                {
+                                    format!("0b{:016b}", registers[row_index])
+                                } else {
+                                    self.format_value(registers[row_index] as usize)
+                                },
+                            );
+                            if let Some(event) =
+                                &self.vm.get_events().register_writes.get(&(row_index as u8))
+                            {
+                                ui.add(label).on_hover_text(format!(
+                                    "Anterior: {}",
+                                    self.format_value(event.before as usize)
+                                ));
+                            } else {
+                                ui.add(label);
+                            }
+                        });
+                    });
+                });
+        }
+    }
+
+    fn bottom_panel_ui(&mut self, ui: &mut egui::Ui) {
+        egui::ScrollArea::vertical()
+            .auto_shrink([false; 2])
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    if ui
+                        .selectable_label(
+                            self.bottom_panel_tab == BottomPanelTab::MemTable,
+                            "Memória",
+                        )
+                        .clicked()
+                    {
+                        self.bottom_panel_tab = BottomPanelTab::MemTable;
+                    }
+                    if ui
+                        .selectable_label(self.bottom_panel_tab == BottomPanelTab::Stdout, "Saída")
+                        .clicked()
+                    {
+                        self.bottom_panel_tab = BottomPanelTab::Stdout;
+                    }
+                });
+                ui.separator();
+                match self.bottom_panel_tab {
+                    BottomPanelTab::MemTable => self.mem_table_ui(ui),
+                    BottomPanelTab::Stdout => self.stdout_ui(ui),
+                }
+            });
+    }
+
+    fn stdout_ui(&mut self, ui: &mut egui::Ui) {
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            ui.label(self.vm.get_stdout());
+        });
+    }
+
+    fn mem_table_ui(&mut self, ui: &mut egui::Ui) {
         if let Some(goto) = self.mem_goto.take() {
             self.mem_view_index = goto.get_slot();
             self.last_mem_goto = goto;
@@ -526,21 +481,18 @@ impl MyApp {
                         row.col(|ui| {
                             ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
                             let mem_slot = row_index + i;
-                            let before =
-                                self.last_events.memory_changed.clone().and_then(|event| {
-                                    if event.slot == mem_slot {
-                                        Some(event.before)
-                                    } else {
-                                        None
-                                    }
-                                });
+                            let before = self
+                                .vm
+                                .get_events()
+                                .memory_writes
+                                .get(&(mem_slot as u16))
+                                .map(|v| v.before);
                             let text = if let Some(v) = memory.get(mem_slot) {
                                 self.format_value(*v as usize)
                             } else {
                                 String::from("---")
                             };
                             if let Some(before) = before {
-                                // frame = frame.fill(ui.visuals().selection.bg_fill);
                                 ui.painter().rect_filled(
                                     ui.max_rect(),
                                     0,
@@ -597,5 +549,73 @@ impl MyApp {
                     );
                 });
         });
+    }
+}
+
+#[derive(Default, PartialEq, Eq)]
+enum BottomPanelTab {
+    #[default]
+    MemTable,
+    Stdout,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+enum ValueFormatType {
+    Decimal,
+    #[default]
+    Hexadecimal,
+    Binary,
+}
+
+impl Display for ValueFormatType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                ValueFormatType::Decimal => "Decimal",
+                ValueFormatType::Hexadecimal => "Hexadecimal",
+                ValueFormatType::Binary => "Binário",
+            }
+        )
+    }
+}
+
+impl ValueFormatType {
+    pub const fn table_columns(&self) -> usize {
+        match self {
+            ValueFormatType::Decimal => 12,
+            ValueFormatType::Hexadecimal => 12,
+            ValueFormatType::Binary => 6,
+        }
+    }
+}
+
+#[derive(Default, PartialEq, Eq)]
+enum MemGoto {
+    #[default]
+    Data,
+    Text,
+}
+
+impl MemGoto {
+    fn get_slot(&self) -> usize {
+        match self {
+            MemGoto::Data => DATA_SEGMENT_START,
+            MemGoto::Text => TEXT_SEGMENT_START,
+        }
+    }
+}
+
+impl Display for MemGoto {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                MemGoto::Data => format!(".data (0x{:04X})", DATA_SEGMENT_START),
+                MemGoto::Text => format!(".text (0x{:04X})", TEXT_SEGMENT_START),
+            }
+        )
     }
 }

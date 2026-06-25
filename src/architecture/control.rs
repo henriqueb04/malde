@@ -1,3 +1,4 @@
+use log::warn;
 use std::{cell::RefCell, rc::Rc};
 
 use crate::architecture::signals::{ALUSignals, ControlSignals};
@@ -14,7 +15,7 @@ impl MicroMem {
     pub fn new(mut microinstructions: Vec<u64>) -> Self {
         let len = microinstructions.len();
         if len > MICROMEM_MAX_SIZE {
-            println!("Tamanho excedido para memória de microinstrução! Descartando excedente");
+            warn!("Tamanho excedido para memória de microinstrução! Descartando excedente");
             microinstructions.truncate(MICROMEM_MAX_SIZE);
         }
         MicroMem {
@@ -72,7 +73,8 @@ impl ControlUnit {
             _ => self.mpc + 1,
         };
         if self.mpc >= self.micro_mem.borrow().len {
-            println!("Microinstruction pc has gone out of bounds! Reseting to 0.");
+            self.mpc = 0;
+            warn!("MPC é maior que o tamanho da memória de microinstruções. Redefinindo como 0...");
         }
         self.prev_mpc = old_mpc;
         (self.mpc, old_mpc)

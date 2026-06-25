@@ -1,5 +1,5 @@
 use crate::architecture::{
-    events::{MachineEvents, NamedChangeEvent, SlotChangeEvent},
+    events::EventHandler,
     signals::{ALUSignals, ControlSignals},
 };
 
@@ -48,9 +48,6 @@ pub const DEFAULT_REGISTER_VALUES: RegisterBank = [
 pub const REGISTER_NAMES: [&str; 16] = [
     "pc", "ac", "sp", "ir", "tir", "0", "1", "-1", "amask", "smask", "a", "b", "c", "d", "e", "f",
 ];
-pub fn get_register_name(register_index: u8) -> &'static str {
-    REGISTER_NAMES[register_index as usize]
-}
 
 pub struct Datapath {
     bus_a: u16,
@@ -143,16 +140,13 @@ impl Datapath {
         self.mbr = self.bus_c;
     }
 
-    pub fn clock(&mut self, signals: &ControlSignals, events: &mut MachineEvents) {
+    pub fn clock(&mut self, signals: &ControlSignals, events: &mut EventHandler) {
         self.load_to_bus_a(signals.a);
         self.load_to_bus_b(signals.b);
         if signals.mar {
             let before = self.mar;
             self.load_to_mar();
-            events.mar_changed = Some(NamedChangeEvent {
-                before,
-                after: self.mar,
-            });
+            events.mar_write(before, self.mar);
         }
         self.alu_in_a = if signals.amux { self.mbr } else { self.bus_a };
         self.alu_operate(signals.alu);
@@ -160,19 +154,12 @@ impl Datapath {
         if signals.mbr {
             let before = self.mbr;
             self.load_to_mbr();
-            events.mbr_changed = Some(NamedChangeEvent {
-                before,
-                after: self.mbr,
-            });
+            events.mbr_write(before, self.mbr);
         }
         if signals.enc {
             let before = self.get_register(signals.c);
             self.load_to_register(signals.c);
-            events.register_changed = Some(SlotChangeEvent {
-                slot: signals.c as usize,
-                before,
-                after: self.get_register(signals.c),
-            });
+            events.register_write(signals.c, before, self.get_register(signals.c));
         }
     }
 

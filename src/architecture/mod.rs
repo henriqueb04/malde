@@ -10,7 +10,7 @@ use control::{ControlUnit, MicroMem};
 use datapath::Datapath;
 use memory::Memory;
 
-use crate::architecture::{events::MachineEvents, memory::MEMORY_SIZE, signals::ControlSignals};
+use crate::architecture::events::EventHandler;
 
 pub struct Cpu {
     datapath: Datapath,
@@ -27,18 +27,17 @@ impl Cpu {
         }
     }
 
-    pub fn advance_microinstruction(&mut self) -> (usize, usize, MachineEvents) {
-        let mut events = MachineEvents::new();
+    pub fn advance_microinstruction(&mut self, events: &mut EventHandler) -> (usize, usize) {
         self.control_unit.load_signals();
-        self.datapath.clock(&self.control_unit.signals, &mut events);
+        self.datapath.clock(&self.control_unit.signals, events);
         self.memory.borrow_mut().clock(
             &self.control_unit.signals,
             &self.datapath.mar,
             &mut self.datapath.mbr,
-            &mut events,
+            events,
         );
         let (mpc, prev_mpc) = self.control_unit.advance(&self.datapath.alu_sigs);
-        (mpc, prev_mpc, events)
+        (mpc, prev_mpc)
     }
 
     pub fn get_registers(&self) -> (u16, u16, &[u16; 16]) {

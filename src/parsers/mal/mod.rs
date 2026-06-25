@@ -19,7 +19,6 @@ pub struct MicroinstructionBuilder<'a> {
 
 #[derive(Debug, Clone)]
 pub struct Microinstruction {
-    pub lineno: usize,
     pub content: String,
     pub mir: ControlSignals,
 }
@@ -27,7 +26,6 @@ pub struct Microinstruction {
 impl<'a> From<MicroinstructionBuilder<'a>> for Microinstruction {
     fn from(value: MicroinstructionBuilder<'a>) -> Self {
         Microinstruction {
-            lineno: value.lineno,
             content: String::from(value.content),
             mir: value.mir.build(),
         }
