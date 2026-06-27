@@ -13,7 +13,7 @@ pub enum TokenType {
     Int(isize),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Span {
     pub start: usize,
     pub end: usize,
@@ -30,7 +30,7 @@ impl<'a> SourceMap<'a> {
     pub fn get_span(&self, span: &Span) -> &'a str {
         &self.content[span.start..span.end]
     }
-    pub fn get(&self, token: Token) -> &'a str {
+    pub fn get(&self, token: &Token) -> &'a str {
         self.get_span(&token.span)
     }
     pub fn end(&self) -> Span {
@@ -120,7 +120,7 @@ impl<'a> Tokenizer<'a> {
             '"' => Some('"'),
             _ => None,
         }
-        .map(|c| (size, c))
+            .map(|c| (size, c))
     }
     fn read_string(&mut self) -> Option<(usize, String)> {
         let mut size = '"'.len_utf8();
