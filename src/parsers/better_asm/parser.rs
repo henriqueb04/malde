@@ -78,7 +78,7 @@ impl<'a> ASMParser<'a> {
         for mut p in self.pre_ins.clone().into_iter() {
             if p.argument != PreInstructionArg::None {
                 let arg_size = 16 - p.keyword_bin.len() as isize;
-                let arg_min: isize = -((1 << (arg_size - 1)) - 1);
+                let arg_min: isize = -(1 << (arg_size - 1));
                 let arg_max: isize = (1 << arg_size) - 1;
                 let (span, n): (Span, isize) = match p.argument {
                     PreInstructionArg::Label(span, s) => {
@@ -92,7 +92,8 @@ impl<'a> ASMParser<'a> {
                     _ => Default::default(),
                 };
                 if (arg_min..=arg_max).contains(&n) {
-                    p.keyword_bin.push_str(&(format!("{:016b}", n))[(16-arg_size as usize)..16])
+                    p.keyword_bin
+                        .push_str(&(format!("{:016b}", n))[(16 - arg_size as usize)..16])
                 } else {
                     return Err(ParsingError {
                         span,
@@ -104,11 +105,12 @@ impl<'a> ASMParser<'a> {
                     });
                 }
             }
-            self.ins
-                .push(u16::from_str_radix(&p.keyword_bin, 2).map_err(|_| ParsingError {
+            self.ins.push(
+                u16::from_str_radix(&p.keyword_bin, 2).map_err(|_| ParsingError {
                     span: p.keyword_span,
                     error_type: ParsingErrorType::InvalidInstruction(p.keyword_bin),
-                })?);
+                })?,
+            );
         }
         Ok(())
     }
@@ -162,8 +164,10 @@ impl<'a> ASMParser<'a> {
             }
             _ => {
                 return Err(ParsingError {
+                    error_type: ParsingErrorType::UnsupportedDirective(
+                        self.source_map.get(&dir).to_string(),
+                    ),
                     span: dir.span,
-                    error_type: ParsingErrorType::UnsupportedDirective,
                 });
             }
         }
@@ -185,24 +189,18 @@ impl<'a> ASMParser<'a> {
         let t1 = self.expect(TokenType::Identifier)?;
         let c1 = self.source_map.get_span(&t1.span);
         let t2 = self.lexer.peek().cloned().transpose()?;
-        println!("{}", c1);
         if let Some(t2) = t2
             && t2.token_type == TokenType::Colon
         {
-            println!("label");
             // LABEL:
-            if let Err(err) = self.text_add_mapping(self.source_map.get(&t1), self.pre_ins.len())
+            self.text_add_mapping(self.source_map.get(&t1), self.pre_ins.len())
                 .map_err(|err| ParsingError {
                     span: t1.span,
                     error_type: err,
-                }) {
-                    println!("This should not happen {}", err);
-                    return Err(err);
-                }
+                })?;
             self.lexer.next();
             self.read_text()?;
         } else if let Some(keyword_bin) = self.keywords.get(c1).cloned() {
-            println!("inst");
             if keyword_bin.len() == 16 {
                 // 16 bit instruction
                 self.pre_ins.push(PreInstruction {
@@ -361,7 +359,7 @@ impl<'a> ASMParser<'a> {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Eq)]
 #[error("Erro ao ler {span:?}: {error_type}")]
 pub struct ParsingError {
     pub span: Span,
@@ -369,7 +367,7 @@ pub struct ParsingError {
     pub error_type: ParsingErrorType,
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Eq)]
 pub enum ParsingErrorType {
     #[error(transparent)]
     TokenError(TokenizerErrorType),
@@ -388,7 +386,7 @@ pub enum ParsingErrorType {
     #[error("Número {0} alto demais para o limite {1}")]
     NumberTooHigh(isize, isize),
     #[error("Diretiva não reconhecida")]
-    UnsupportedDirective,
+    UnsupportedDirective(String),
     #[error("Instrução {0} inválida")]
     InvalidInstruction(String),
     #[error("Rótulo {0} já está em uso")]
@@ -504,5 +502,73 @@ mod tests {
                 0b0110000000000001
             ]
         );
+    }
+
+    fn assert_err(content: &str, err: ParsingErrorType) {
+        let mut def_keys =
+            HashMap::from(DEFAULT_KEYWORDS.map(|(a, b)| (String::from(a), String::from(b))));
+        def_keys.insert("ERRORR".to_string(), "0002".to_string());
+        let sm = SourceMap {
+            filename: "",
+            content,
+        };
+        let parser = ASMParser::new(sm.clone(), def_keys, DATA_SEGMENT_START);
+        assert_eq!(parser.parse().unwrap_err().error_type, err);
+    }
+
+    #[test]
+    fn test_errors() {
+        assert_err(
+            "4",
+            ParsingErrorType::UnexpectedToken(
+                Token {
+                    token_type: TokenType::Int(4),
+                    span: Span {
+                        start: 0,
+                        end: 1,
+                        line: 1,
+                        col: 1,
+                    },
+                },
+                TokenType::Directive,
+            ),
+        );
+        assert_err(
+            ".teste",
+            ParsingErrorType::UnrecognizedSession(".teste".to_string()),
+        );
+        assert_err(
+            ".text KEYWORD",
+            ParsingErrorType::UnrecognizedKeyword("KEYWORD".to_string()),
+        );
+        assert_err(
+            ".text LODD LABEL",
+            ParsingErrorType::UnrecognizedLabel("LABEL".to_string()),
+        );
+        assert_err(".data TESTE", ParsingErrorType::UnexpectedEnd);
+        assert_err(
+            ".text INSP -99999999",
+            ParsingErrorType::NumberTooLow(-99999999, 0b10000000u8 as i8 as isize),
+        );
+        assert_err(
+            ".data VAR: .byte 256",
+            ParsingErrorType::NumberTooHigh(256, 255),
+        );
+        assert_err(
+            ".data VAR: .half 55",
+            ParsingErrorType::UnsupportedDirective(".half".to_string()),
+        );
+        assert_err(
+            ".data VAR: .half 55",
+            ParsingErrorType::UnsupportedDirective(".half".to_string()),
+        );
+        assert_err(
+            ".text ERRORR 1",
+            ParsingErrorType::InvalidInstruction("0002000000000001".to_string()),
+        );
+        assert_err(
+            ".text LABEL1: SWAP LABEL2: SWAP LABEL1: SWAP",
+            ParsingErrorType::DuplicatedLabel("LABEL1".to_string()),
+        )
     }
 }
