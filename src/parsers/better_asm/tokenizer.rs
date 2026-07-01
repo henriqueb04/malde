@@ -2,6 +2,8 @@ use std::{iter::Peekable, str::CharIndices};
 
 use thiserror::Error;
 
+use crate::parsers::source_map::*;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenType {
     Identifier,
@@ -13,93 +15,72 @@ pub enum TokenType {
     Int(isize),
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Span {
-    pub start: usize,
-    pub end: usize,
-    pub lineno: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceMap<'a> {
-    pub filename: &'a str,
-    pub content: &'a str,
-}
-
-impl<'a> SourceMap<'a> {
-    pub fn get_span(&self, span: &Span) -> &'a str {
-        &self.content[span.start..span.end]
-    }
-    pub fn get(&self, token: &Token) -> &'a str {
-        self.get_span(&token.span)
-    }
-    pub fn end(&self) -> Span {
-        Span {
-            start: self.content.len(),
-            end: self.content.len(),
-            lineno: self.content.lines().count(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Token {
     pub token_type: TokenType,
     pub span: Span,
 }
 
+impl HasSpan for Token {
+    fn span(&self) -> &Span {
+        &self.span
+    }
+}
+
 pub struct Tokenizer<'a> {
     source_map: SourceMap<'a>,
-    chars: Peekable<CharIndices<'a>>,
-    cur_line: usize,
-    start: usize,
+    chars: SourceReader<'a>,
 }
 
 impl<'a> Tokenizer<'a> {
     pub fn new(source_map: &SourceMap<'a>) -> Self {
         Tokenizer {
             source_map: source_map.clone(),
-            chars: source_map.content.char_indices().peekable(),
-            cur_line: 1,
-            start: 0,
+            chars: source_map.reader(),
         }
     }
 
     fn read_identifier(&mut self) -> Option<Span> {
-        let mut end = self.start;
-        while let Some(&(_, c)) = self.chars.peek()
+        let start = self.chars.offset();
+        let mut end = self.chars.offset();
+        let line = self.chars.line();
+        let col = self.chars.col();
+        while let Some((_, &c)) = self.chars.peek()
             && is_identifier_body(&c)
         {
             self.chars.next();
             end += c.len_utf8();
         }
-        if self.start != end {
+        if start != end {
             let span = Span {
-                start: self.start,
+                start,
                 end,
-                lineno: self.cur_line,
+                line,
+                col,
             };
-            self.start = end;
             Some(span)
         } else {
             None
         }
     }
     fn read_digits(&mut self) -> Option<Span> {
-        let mut end = self.start;
-        while let Some(&(_, c)) = self.chars.peek()
+        let start = self.chars.offset();
+        let mut end = self.chars.offset();
+        let line = self.chars.line();
+        let col = self.chars.col();
+        while let Some((_, &c)) = self.chars.peek()
             && (c.is_ascii_digit() || c == '-')
         {
             self.chars.next();
             end += c.len_utf8();
         }
-        if self.start != end {
+        if start != end {
             let span = Span {
-                start: self.start,
+                start,
                 end,
-                lineno: self.cur_line,
+                line,
+                col,
             };
-            self.start = end;
             Some(span)
         } else {
             None
@@ -125,7 +106,7 @@ impl<'a> Tokenizer<'a> {
     fn read_string(&mut self) -> Option<(usize, String)> {
         let mut size = '"'.len_utf8();
         let mut content = String::new();
-        while let Some(&(_, c)) = self.chars.peek()
+        while let Some((_, &c)) = self.chars.peek()
             && c != '"'
         {
             self.chars.next();
@@ -135,9 +116,6 @@ impl<'a> Tokenizer<'a> {
                 content.push(escaped.1);
                 size += escaped.0;
             } else {
-                if c == '\n' {
-                    self.cur_line += 1;
-                }
                 content.push(c);
             }
         }
@@ -151,56 +129,53 @@ impl<'a> Iterator for Tokenizer<'a> {
     type Item = Result<Token, TokenizerError>;
     fn next(&mut self) -> Option<Self::Item> {
         let mut comment = false;
-        while let Some(&(i, c)) = self.chars.peek() {
-            self.start = i;
+        while let Some((l, &c)) = self.chars.peek() {
+            let start = self.chars.offset();
+            let line = self.chars.line();
+            let col = self.chars.col();
             let t: Option<Token> = match c {
                 '#' => {
                     comment = true;
                     None
                 }
                 '\n' => {
-                    self.cur_line += 1;
                     comment = false;
                     None
                 }
                 _ if comment => None,
                 _ if c.is_whitespace() => None,
                 '.' => {
-                    let st = self.start;
                     self.chars.next();
-                    self.start += c.len_utf8();
                     if let Some(span) = self.read_identifier() {
                         Some(Token {
                             token_type: TokenType::Directive,
                             span: Span {
-                                start: st,
+                                start,
                                 end: span.end,
-                                lineno: span.lineno,
+                                line,
+                                col,
                             },
                         })
                     } else {
                         return Some(Err(TokenizerError {
                             error_type: TokenizerErrorType::InvalidDirective,
                             span: Span {
-                                start: st,
-                                end: st + c.len_utf8(),
-                                lineno: self.cur_line,
+                                start,
+                                end: self.chars.offset(),
+                                line,
+                                col,
                             },
                         }));
                     }
                 }
                 '\'' => {
-                    let start = self.start;
-                    let mut size = 1;
                     self.chars.next();
                     let n = self.chars.next().and_then(|(_, c)| {
-                        size += c.len_utf8();
                         if c == '\n' {
                             return None;
                         }
                         let n = if c == '\\' {
                             let (s, c2) = self.escape_char()?;
-                            size += s;
                             c2
                         } else {
                             c
@@ -209,87 +184,83 @@ impl<'a> Iterator for Tokenizer<'a> {
                         if c != '\'' {
                             None
                         } else {
-                            size += c.len_utf8();
                             Some(n as isize)
                         }
                     });
+                    let span = Span {
+                        start,
+                        end: self.chars.offset(),
+                        line,
+                        col,
+                    };
                     if let Some(n) = n {
                         Some(Token {
                             token_type: TokenType::Int(n),
-                            span: Span {
-                                start,
-                                end: start + size,
-                                lineno: self.cur_line,
-                            },
+                            span,
                         })
                     } else {
                         return Some(Err(TokenizerError {
                             error_type: TokenizerErrorType::UnendedChar,
-                            span: Span {
-                                start,
-                                end: start + c.len_utf8(),
-                                lineno: self.cur_line,
-                            },
+                            span,
                         }));
                     }
                 }
                 '"' => {
-                    let start = self.start;
                     self.chars.next();
-                    if let Some((size, content)) = self.read_string() {
+                    let s = self.read_string();
+                    let span = Span {
+                        start,
+                        end: self.chars.offset(),
+                        line,
+                        col,
+                    };
+                    if let Some((size, content)) = s {
                         Some(Token {
                             token_type: TokenType::String(content),
-                            span: Span {
-                                start,
-                                end: start + size,
-                                lineno: self.cur_line,
-                            },
+                            span,
                         })
                     } else {
                         return Some(Err(TokenizerError {
                             error_type: TokenizerErrorType::UnendedString,
-                            span: Span {
-                                start,
-                                end: start + c.len_utf8(),
-                                lineno: self.cur_line,
-                            },
+                            span,
                         }));
                     }
                 }
                 ';' => {
-                    let span = Span {
-                        start: self.start,
-                        end: self.start + c.len_utf8(),
-                        lineno: self.cur_line,
-                    };
                     self.chars.next();
+                    let span = Span {
+                        start,
+                        end: self.chars.offset(),
+                        line,
+                        col,
+                    };
                     Some(Token {
                         token_type: TokenType::Semicolon,
                         span,
                     })
                 }
                 ':' => {
-                    let span = Span {
-                        start: self.start,
-                        end: self.start + c.len_utf8(),
-                        lineno: self.cur_line,
-                    };
                     self.chars.next();
                     Some(Token {
                         token_type: TokenType::Colon,
-                        span,
+                        span: Span {
+                            start,
+                            end: self.chars.offset(),
+                            line,
+                            col
+                        },
                     })
                 }
                 ',' => {
-                    let span = Span {
-                        start: self.start,
-                        end: self.start + c.len_utf8(),
-                        lineno: self.cur_line,
-                    };
                     self.chars.next();
                     Some(Token {
                         token_type: TokenType::Comma,
-                        span,
+                        span: Span {
+                            start,
+                            end: self.chars.offset(),
+                            line,
+                            col
+                        },
                     })
                 }
                 '-' | '0'..='9' => {
@@ -312,11 +283,13 @@ impl<'a> Iterator for Tokenizer<'a> {
                     span,
                 }),
                 _ => {
+                    self.chars.next();
                     return Some(Err(TokenizerError {
                         span: Span {
-                            start: self.start,
-                            end: self.start + c.len_utf8(),
-                            lineno: self.cur_line,
+                            start,
+                            end: self.chars.offset(),
+                            line,
+                            col
                         },
                         error_type: TokenizerErrorType::UnexpectedCharacter,
                     }));
@@ -325,7 +298,6 @@ impl<'a> Iterator for Tokenizer<'a> {
             if let Some(token) = t {
                 return Some(Ok(token));
             } else {
-                self.start += c.len_utf8();
                 self.chars.next();
             }
         }
@@ -438,9 +410,9 @@ mod tests {
         assert_lexer_err(". data", TokenizerErrorType::InvalidDirective, ".");
         assert_lexer_err("-abc", TokenizerErrorType::InvalidNumber, "-");
         assert_lexer_err("*.data", TokenizerErrorType::UnexpectedCharacter, "*");
-        assert_lexer_err("\"*.data", TokenizerErrorType::UnendedString, "\"");
-        assert_lexer_err("'abcde", TokenizerErrorType::UnendedChar, "'");
-        assert_lexer_err("'\n'", TokenizerErrorType::UnendedChar, "'");
-        assert_lexer_err("'a '", TokenizerErrorType::UnendedChar, "'");
+        assert_lexer_err("\"*.data", TokenizerErrorType::UnendedString, "\"*.data");
+        assert_lexer_err("'abcde", TokenizerErrorType::UnendedChar, "'ab");
+        assert_lexer_err("'\n'", TokenizerErrorType::UnendedChar, "'\n");
+        assert_lexer_err("'a '", TokenizerErrorType::UnendedChar, "'a ");
     }
 }

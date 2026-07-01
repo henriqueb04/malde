@@ -4,8 +4,9 @@ use log::{debug, warn};
 use thiserror::Error;
 
 use crate::parsers::better_asm::tokenizer::{
-    SourceMap, Span, Token, TokenType, Tokenizer, TokenizerError, TokenizerErrorType,
+    Token, TokenType, Tokenizer, TokenizerError, TokenizerErrorType,
 };
+use crate::parsers::source_map::{SourceMap, Span};
 
 pub const DEFAULT_KEYWORDS: [(&str, &str); 24] = [
     ("LODD", "0000"),
