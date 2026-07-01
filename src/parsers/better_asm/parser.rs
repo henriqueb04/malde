@@ -1,6 +1,5 @@
 use std::{collections::HashMap, iter::Peekable, mem::discriminant};
 
-use log::{debug, warn};
 use thiserror::Error;
 
 use crate::parsers::better_asm::tokenizer::{
@@ -45,6 +44,14 @@ pub struct ASMParser<'a> {
     data_mappings: HashMap<&'a str, usize>,
     ins_mappings: HashMap<&'a str, usize>,
     pre_ins: Vec<PreInstruction<'a>>,
+    ins_list: Vec<Instruction>,
+}
+
+#[derive(Debug, Default)]
+pub struct ParserResult {
+    data_mem: Vec<u16>,
+    ins_mem: Vec<u16>,
+    instructions: Vec<Instruction>,
 }
 
 impl<'a> ASMParser<'a> {
@@ -63,19 +70,30 @@ impl<'a> ASMParser<'a> {
             data_mappings: HashMap::new(),
             ins_mappings: HashMap::new(),
             pre_ins: Vec::new(),
+            ins_list: Vec::new(),
         }
     }
 
-    pub fn parse(mut self) -> Result<(Vec<u16>, Vec<u16>), ParsingError> {
+    pub fn parse(mut self) -> Result<ParserResult, ParsingError> {
         while self.lexer.peek().cloned().transpose()?.is_some() {
             self.read_section()?;
         }
-        self.validate_pre_ins()?;
-        Ok((self.ins, self.data))
+        self.process_pre_ins()?;
+        self.assign_ins_list_labels();
+        Ok(ParserResult {
+            data_mem: self.data,
+            ins_mem: self.ins,
+            instructions: self.ins_list,
+        })
     }
 
-    fn validate_pre_ins(&mut self) -> Result<(), ParsingError> {
+    fn process_pre_ins(&mut self) -> Result<(), ParsingError> {
         for mut p in self.pre_ins.clone().into_iter() {
+            let mut instruction = Instruction {
+                keyword: self.source_map.get_span(&p.keyword_span).to_string(),
+                arg: None,
+                labels: Vec::new()
+            };
             if p.argument != PreInstructionArg::None {
                 let arg_size = 16 - p.keyword_bin.len() as isize;
                 let arg_min: isize = -(1 << (arg_size - 1));
@@ -104,6 +122,7 @@ impl<'a> ASMParser<'a> {
                         },
                     });
                 }
+                instruction.arg = Some(self.source_map.get_span(&span).to_string());
             }
             self.ins.push(
                 u16::from_str_radix(&p.keyword_bin, 2).map_err(|_| ParsingError {
@@ -111,8 +130,18 @@ impl<'a> ASMParser<'a> {
                     error_type: ParsingErrorType::InvalidInstruction(p.keyword_bin),
                 })?,
             );
+            self.ins_list.push(instruction);
         }
         Ok(())
+    }
+
+    fn assign_ins_list_labels(&mut self) {
+        for (label,i) in self.ins_mappings.iter() {
+            // Esse if não deve ser necessário, mas só pra ter certeza
+            if let Some(ins) = self.ins_list.get_mut(*i) {
+                ins.labels.push(label.to_string());
+            }
+        }
     }
 
     fn read_section(&mut self) -> Result<(), ParsingError> {
@@ -416,36 +445,18 @@ struct PreInstruction<'a> {
     argument: PreInstructionArg<'a>,
 }
 
-/*
-program :: section+
-
-section :: data | text
-
-data :: ".data" (datadef ;*)*
-
-datadef :: identifier : datavalue
-
-datavalue :: singlevalue | multiplevalue
-
-singlevalue :: directive value
-
-multiplevalue :: directive value (, value)*
-
-value :: valuesimple | string
-
-valuesimple :: int | char
-
-text :: ".text" (instruction ;*)*
-
-instruction :: (identifier :)* keyword (valuesimple | identifier)
- */
+#[derive(Debug, Clone)]
+pub struct Instruction {
+    pub keyword: String,
+    pub arg: Option<String>,
+    pub labels: Vec<String>,
+}
 
 #[cfg(test)]
 mod tests {
     use crate::virtual_machine::DATA_SEGMENT_START;
 
     use super::*;
-    use log::debug;
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -471,7 +482,7 @@ mod tests {
 ",
         };
         let parser = ASMParser::new(source_map.clone(), def_keys, DATA_SEGMENT_START);
-        let (ins, data) = parser.parse().unwrap();
+        let ParserResult { data_mem: data, ins_mem: ins, .. } = parser.parse().unwrap();
         let expected = [
             1u16,
             1,
@@ -519,18 +530,18 @@ mod tests {
     #[test]
     fn test_errors() {
         assert_err(
-            "4",
+            ".data\n :",
             ParsingErrorType::UnexpectedToken(
                 Token {
-                    token_type: TokenType::Int(4),
+                    token_type: TokenType::Colon,
                     span: Span {
-                        start: 0,
-                        end: 1,
-                        line: 1,
-                        col: 1,
+                        start: 7,
+                        end: 8,
+                        line: 2,
+                        col: 2,
                     },
                 },
-                TokenType::Directive,
+                TokenType::Identifier,
             ),
         );
         assert_err(
