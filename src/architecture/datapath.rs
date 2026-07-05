@@ -5,50 +5,6 @@ use crate::architecture::{
 
 pub type RegisterBank = [u16; 16];
 
-pub fn get_register_index(register_name: &str) -> Option<u8> {
-    match register_name {
-        "pc" => Some(0),
-        "ac" => Some(1),
-        "sp" => Some(2),
-        "ir" => Some(3),
-        "tir" => Some(4),
-        "0" => Some(5),
-        "1" => Some(6),
-        "(-1)" => Some(7),
-        "amask" => Some(8),
-        "smask" => Some(9),
-        "a" => Some(10),
-        "b" => Some(11),
-        "c" => Some(12),
-        "d" => Some(13),
-        "e" => Some(14),
-        "f" => Some(15),
-        _ => None,
-    }
-}
-
-pub const DEFAULT_REGISTER_VALUES: RegisterBank = [
-    0,
-    0,
-    (1 << 12) as u16, // sp (no final da memória)
-    0,
-    0,
-    0,                      // 0
-    1,                      // 1
-    ((1 << 16) - 1) as u16, // -1
-    ((1 << 12) - 1) as u16, // amask
-    ((1 << 8) - 1) as u16,  // smask
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-];
-pub const REGISTER_NAMES: [&str; 16] = [
-    "pc", "ac", "sp", "ir", "tir", "0", "1", "-1", "amask", "smask", "a", "b", "c", "d", "e", "f",
-];
-
 pub struct Datapath {
     bus_a: u16,
     bus_b: u16,
@@ -69,7 +25,7 @@ impl Datapath {
             bus_c: 0,
             mar: 0,
             mbr: 0,
-            registers: DEFAULT_REGISTER_VALUES,
+            registers: Registers::DEFAULT_VALUES,
             alu_in_a: 0,
             alu_out: 0,
             alu_sigs: ALUSignals { z: false, n: false },
@@ -164,12 +120,78 @@ impl Datapath {
     }
 
     pub fn reset(&mut self) {
-        self.registers = DEFAULT_REGISTER_VALUES;
+        self.registers = Registers::DEFAULT_VALUES;
         self.mar = 0;
         self.mbr = 0;
     }
 
     pub fn get_registers(&self) -> &RegisterBank {
         &self.registers
+    }
+    pub fn get_registers_mut(&mut self) -> &mut RegisterBank {
+        &mut self.registers
+    }
+}
+
+pub struct Registers;
+impl Registers {
+    pub const PC: usize = 0;
+    pub const AC: usize = 1;
+    pub const SP: usize = 2;
+    pub const IR: usize = 3;
+    pub const TIR: usize = 4;
+    pub const ZERO: usize = 5;
+    pub const ONE: usize = 6;
+    pub const MINUS_ONE: usize = 7;
+    pub const AMASK: usize = 8;
+    pub const SMASK: usize = 9;
+    pub const A: usize = 10;
+    pub const B: usize = 11;
+    pub const C: usize = 12;
+    pub const D: usize = 13;
+    pub const E: usize = 14;
+    pub const F: usize = 15;
+    pub const DEFAULT_VALUES: RegisterBank = [
+        0,
+        0,
+        (1 << 12) as u16, // sp (no final da memória)
+        0,
+        0,
+        0,                      // 0
+        1,                      // 1
+        -1i16 as u16,           // -1
+        ((1 << 12) - 1) as u16, // amask
+        ((1 << 8) - 1) as u16,  // smask
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+    ];
+    pub const NAMES: [&str; 16] = [
+        "pc", "ac", "sp", "ir", "tir", "0", "1", "-1", "amask", "smask", "a", "b", "c", "d", "e",
+        "f",
+    ];
+    pub fn get_index(register_name: &str) -> Option<u8> {
+        match register_name {
+            "pc" => Some(0),
+            "ac" => Some(1),
+            "sp" => Some(2),
+            "ir" => Some(3),
+            "tir" => Some(4),
+            "0" => Some(5),
+            "1" => Some(6),
+            "(-1)" => Some(7),
+            "amask" => Some(8),
+            "smask" => Some(9),
+            "a" => Some(10),
+            "b" => Some(11),
+            "c" => Some(12),
+            "d" => Some(13),
+            "e" => Some(14),
+            "f" => Some(15),
+            _ => None,
+        }
     }
 }

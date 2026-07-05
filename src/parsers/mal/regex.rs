@@ -1,4 +1,4 @@
-use crate::architecture::datapath::get_register_index;
+use crate::architecture::datapath::Registers;
 use crate::parsers::mal::errors::ParsingErrorType;
 use crate::parsers::mal::mir_builder::ControlSignalsBuilder;
 use regex::{Captures, Regex};
@@ -17,6 +17,7 @@ static SHIFT_R: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(?<shift>lshift|rshift)\s*\((?<operation>.+)\)$").unwrap());
 static RD_R: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*rd\s*$").unwrap());
 static WR_R: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*wr\s*$").unwrap());
+static SYSCALL_R: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*syscall\s*$").unwrap());
 static IF_GOTO_R: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^\s*(?:if\s+(?<cond>z|n))?(?:\s*then)?\s*goto\s+(?<addr>[\d\w_-]+)\s*$").unwrap()
 });
@@ -51,6 +52,10 @@ fn parse_expr<'a, 'b>(
     }
     if WR_R.captures(expr).is_some() {
         mir.set_bool("wr", true)?;
+        return Ok(mir);
+    }
+    if SYSCALL_R.captures(expr).is_some() {
+        mir.set_bool("syscall", true)?;
         return Ok(mir);
     }
     // Procura por goto
@@ -89,7 +94,7 @@ fn parse_expr<'a, 'b>(
     };
     // Verificações
     let dest = dest.as_str();
-    let dest_index = get_register_index(dest);
+    let dest_index = Registers::get_index(dest);
     let dest_is_register = dest_index.is_some();
     let dest_is_mbr = dest == "mbr";
     let dest_is_mar = dest == "mar";
@@ -138,7 +143,7 @@ fn parse_expr<'a, 'b>(
     if dest_is_mar {
         if let Some(name) = transparency {
             let name = name.as_str();
-            let Some(index) = get_register_index(name) else {
+            let Some(index) = Registers::get_index(name) else {
                 if name == "mar" || name == "mbr" {
                     return Err(ParsingErrorType::ImpossiblePath(dest, name));
                 }
@@ -221,7 +226,7 @@ where
             op.get(0).unwrap().as_str(),
         ));
     }
-    let Some(index) = get_register_index(name) else {
+    let Some(index) = Registers::get_index(name) else {
         return Err(ParsingErrorType::InvalidRegister(name));
     };
     mir.set_bool("amux", false)?;
@@ -246,7 +251,7 @@ fn set_reg_b<'a, 'b>(
             op.get(0).unwrap().as_str(),
         ));
     }
-    let Some(index) = get_register_index(name) else {
+    let Some(index) = Registers::get_index(name) else {
         return Err(ParsingErrorType::InvalidRegister(name));
     };
     // Caso B esteja ocupado e A tenha o valor desejado em B, verifica se há possibilidade de

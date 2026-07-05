@@ -56,16 +56,17 @@ pub struct ControlSignals {
     pub b: u8,
     pub a: u8,
     pub addr: u16,
+    pub syscall: bool,
 }
 
-pub const CONTROL_SIGNAL_NAMES_B: [&str; 6] = ["amux", "mbr", "mar", "rd", "wr", "enc"];
+pub const CONTROL_SIGNAL_NAMES_B: [&str; 7] = ["amux", "mbr", "mar", "rd", "wr", "enc", "syscall"];
 pub const CONTROL_SIGNAL_NAMES_U: [&str; 6] = ["cond", "alu", "sh", "c", "b", "a"];
-pub const CONTROL_SIGNAL_NAMES: [&str; 13] = [
-    "amux", "cond", "alu", "sh", "mbr", "mar", "rd", "wr", "enc", "c", "b", "a", "addr",
+pub const CONTROL_SIGNAL_NAMES: [&str; 14] = [
+    "amux", "cond", "alu", "sh", "mbr", "mar", "rd", "wr", "enc", "c", "b", "a", "addr", "syscall",
 ];
 
 impl ControlSignals {
-    pub fn to_array(&self) -> [usize; 13] {
+    pub fn to_array(&self) -> [usize; 14] {
         [
             self.amux as usize,
             self.cond as usize,
@@ -80,27 +81,36 @@ impl ControlSignals {
             self.b as usize,
             self.a as usize,
             self.addr as usize,
+            self.syscall as usize,
         ]
     }
+
+    pub const NAMES_B: [&str; 7] = ["amux", "mbr", "mar", "rd", "wr", "enc", "syscall"];
+    pub const NAMES_U: [&str; 6] = ["cond", "alu", "sh", "c", "b", "a"];
+    pub const NAMES: [&str; 14] = [
+        "amux", "cond", "alu", "sh", "mbr", "mar", "rd", "wr", "enc", "c", "b", "a", "addr",
+        "syscall",
+    ];
 }
 
 impl From<&u64> for ControlSignals {
     #[rustfmt::skip]
     fn from(n: &u64) -> Self {
         ControlSignals {
-            amux: get_bit(n, 0),
-            cond: slice_bits(n, 1, 3),
-            alu : slice_bits(n, 3, 5),
-            sh  : slice_bits(n, 5, 7),
-            mbr : get_bit(n, 7),
-            mar : get_bit(n, 8),
-            rd  : get_bit(n, 9),
-            wr  : get_bit(n, 10),
-            enc : get_bit(n, 11),
-            c   : slice_bits(n, 12, 16),
-            b   : slice_bits(n, 16, 20),
-            a   : slice_bits(n, 20, 24),
-            addr: slice_bits_u16(n, 24, 34),
+            amux   : get_bit(n, 0),
+            cond   : slice_bits(n, 1, 3),
+            alu    : slice_bits(n, 3, 5),
+            sh     : slice_bits(n, 5, 7),
+            mbr    : get_bit(n, 7),
+            mar    : get_bit(n, 8),
+            rd     : get_bit(n, 9),
+            wr     : get_bit(n, 10),
+            enc    : get_bit(n, 11),
+            c      : slice_bits(n, 12, 16),
+            b      : slice_bits(n, 16, 20),
+            a      : slice_bits(n, 20, 24),
+            addr   : slice_bits_u16(n, 24, 34),
+            syscall: get_bit(n, 34),
         }
     }
 }
@@ -120,6 +130,7 @@ impl From<ControlSignals> for u64 {
             | position_bits(&item.b, 16, 20)
             | position_bits(&item.a, 20, 24)
             | position_bits_u16(&item.addr, 24, 34)
+            | position_bit(&item.syscall, 34)
     }
 }
 
@@ -144,10 +155,11 @@ mod tests {
             b: 0b0110,
             a: 0b1111,
             addr: 0b10101001,
+            syscall: true,
         };
         let n: u64 = sigs.clone().into();
         let expected: u64 =
-            0b1_01_10_00_10100_1001_0110_1111_0010101001_000000000000000000000000000000;
+            0b1_01_10_00_10100_1001_0110_1111_0010101001_1_00000000000000000000000000000;
         println!("expected: {:b}", expected);
         println!("result  : {:b}", n);
         assert_eq!(n, expected);
@@ -169,9 +181,10 @@ mod tests {
             b: 0b0000,
             a: 0b0001,
             addr: 0b01111110,
+            syscall: false,
         };
         let n: u64 = sigs.clone().into();
-        let expected = 0b0_11_01_11_01101_0101_0000_0001_0001111110_000000000000000000000000000000;
+        let expected = 0b0_11_01_11_01101_0101_0000_0001_0001111110_0_00000000000000000000000000000;
         println!("expected: {:b}", expected);
         println!("result  : {:b}", n);
         assert_eq!(n, expected);
