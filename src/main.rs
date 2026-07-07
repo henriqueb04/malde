@@ -8,14 +8,13 @@ use log::{debug, error};
 
 use std::{fmt::Display, fs};
 
-use eframe::egui;
+use eframe::egui::{self, Color32};
 use egui_extras::{Column, TableBuilder};
 
 use crate::{
     architecture::signals::CONTROL_SIGNAL_NAMES,
     virtual_machine::{
-        DATA_SEGMENT_START, MEMORY_SIZE, Registers, TEXT_SEGMENT_START, VM, VMInputRequest,
-        VMInputResponse, VMResponse,
+        DATA_SEGMENT_START, MEMORY_SIZE, Registers, TEXT_SEGMENT_START, VM, VMExecutionType, VMInputRequest, VMInputResponse, VMResponse
     },
 };
 
@@ -150,6 +149,13 @@ impl eframe::App for MyApp {
                 });
             }
         });
+        if let Some(input_type) = self.input_modal_type.clone() {
+            let modal = egui::Modal::new(egui::Id::new("Input modal")).show(ui, |ui| {
+                ui.set_width(300.0);
+                ui.heading("Entrada");
+                self.input_request_ui(ui, &input_type);
+            });
+        }
         if self.msg_modal_open {
             let modal = egui::Modal::new(egui::Id::new("Msg modal 1")).show(ui, |ui| {
                 ui.set_width(300.0);
@@ -208,12 +214,17 @@ impl MyApp {
         self.next_mpc = 0;
     }
 
-    fn advance_microinstruction(&mut self) {
+    fn execute(&mut self, execution_type: VMExecutionType) {
+        let res = self.vm.execute(execution_type);
+        self.handle_response(res);
+    }
+
+    fn handle_response(&mut self, res: VMResponse) {
         let VMResponse {
             mpc,
             prev_mpc,
             request,
-        } = self.vm.advance_microinstruction();
+        } = res;
         if let Some(request) = request {
             self.handle_input_request(request);
         }
@@ -223,18 +234,15 @@ impl MyApp {
         self.selected = self.cur_mpc;
     }
 
-    fn advance_macroinstruction(&mut self) {
-        let VMResponse { mpc, prev_mpc, .. } = self.vm.advance_macroinstruction();
-        self.next_mpc = mpc;
-        self.cur_mpc = prev_mpc;
-        self.scroll_mpc = Some(self.cur_mpc);
-        self.selected = self.cur_mpc;
-    }
-
-    fn send_input_response(&mut self, res: VMInputResponse) {
-        match self.vm.handle_input(res) {
-            Ok(()) => {
+    fn send_input_response(&mut self, inp: VMInputResponse) {
+        match self.vm.handle_input(inp) {
+            Ok(res) => {
+                if let Some(res) = res {
+                    self.handle_response(res);
+                }
                 self.input_modal_type = None;
+                self.input_modal_text = String::new();
+                self.input_model_error = String::new();
             }
             Err(err) => {
                 self.input_model_error = err.to_string();
@@ -272,24 +280,33 @@ impl MyApp {
                 VMInputRequest::String => "Digite um texto:",
             });
             ui.add(egui::TextEdit::singleline(&mut self.input_modal_text));
-            if ui.button("Teste").clicked() {
+            ui.colored_label(Color32::RED, self.input_model_error.clone());
+            if ui.button("Enviar").clicked() {
                 match request_type {
                     VMInputRequest::Int => {
                         if let Ok(n) = self.input_modal_text.parse::<isize>() {
                             self.send_input_response(VMInputResponse::Int(n));
+                        } else {
+                            self.input_model_error = "Número inválido".to_string();
                         }
                     }
                     VMInputRequest::Char => {
-                        if self.input_modal_text.len() == 1 {
+                        if self.input_modal_text.len() == 1 && self.input_modal_text.is_ascii() {
                             self.send_input_response(VMInputResponse::Char(
                                 self.input_modal_text.chars().next().unwrap(),
                             ));
+                        } else {
+                            self.input_model_error = "Deve haver apenas um caractere ASCII".to_string();
                         }
                     }
                     VMInputRequest::String => {
-                        self.send_input_response(VMInputResponse::String(
-                            self.input_modal_text.clone(),
-                        ));
+                        if self.input_modal_text.is_ascii() {
+                            self.send_input_response(VMInputResponse::String(
+                                self.input_modal_text.clone(),
+                            ));
+                        } else {
+                            self.input_model_error = "Todos os carateres precisam ser do padrão ASCII".to_string();
+                        }
                     }
                 }
             }
@@ -303,17 +320,21 @@ impl MyApp {
             .max(ui.spacing().interact_size.y);
         if self.vm.is_ready() {
             ui.horizontal(|ui| {
-                if ui.button("Próxima microinstrução").clicked() {
-                    self.advance_microinstruction();
-                }
-                if ui.button("Próxima macroinstrução").clicked() {
-                    self.advance_macroinstruction();
-                }
                 if ui.button("Resetar").clicked() {
                     self.reset_vm();
                 }
+                ui.add_enabled_ui(self.vm.is_active(), |ui| {
+                    if ui.button("Próxima microinstrução").clicked() {
+                        self.execute(VMExecutionType::Microinstruction);
+                    }
+                    if ui.button("Próxima macroinstrução").clicked() {
+                        self.execute(VMExecutionType::Macroinstruction);
+                    }
+                });
             });
-            ui.separator();
+        };
+        ui.separator();
+        if self.vm.is_ready() {
             let mir = &self.vm.microinstructions()[self.selected].mir;
             ui.set_min_width(50.0);
             ui.strong("Registrador de Microinstrução:");
@@ -349,7 +370,6 @@ impl MyApp {
                     });
                 });
         }
-        ui.separator();
         ui.strong("Registradores:");
         let (mar, mbr, registers) = self.vm.registers();
         let reg_table = TableBuilder::new(ui)

@@ -1,10 +1,10 @@
 use thiserror::Error;
-use log::info;
 
 use crate::architecture::datapath::RegisterBank;
 use crate::architecture::events::EventHandler;
 use crate::architecture::memory::{Memory, MemoryArray};
 use std::cell::Ref;
+use std::mem::discriminant;
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{
@@ -21,6 +21,7 @@ pub use crate::architecture::{datapath::Registers, memory::MEMORY_SIZE};
 pub struct VM {
     keywords: HashMap<String, String>,
     state: VMState,
+    execution_type: Option<VMExecutionType>,
     initial_memory: Option<(Vec<u16>, Vec<u16>)>,
     memory: Rc<RefCell<Memory>>,
     micro_mem: Rc<RefCell<MicroMem>>,
@@ -49,6 +50,7 @@ impl VM {
             micro_mem: Rc::clone(&micro_mem),
             cpu: Cpu::new(Rc::clone(&memory), Rc::clone(&micro_mem)),
             state: VMState::Uninitialized,
+            execution_type: None,
             microinstructions: Vec::new(),
             initial_memory: None,
             events: EventHandler::default(),
@@ -91,8 +93,11 @@ impl VM {
 
     const MIN_INT: isize = i16::MIN as isize;
     const MAX_INT: isize = u16::MAX as isize;
-    pub fn handle_input(&mut self, input_type: VMInputResponse) -> Result<(), VMInputError> {
-        let res = if let VMState::Waiting(request_type) = &self.state {
+    pub fn handle_input(
+        &mut self,
+        input_type: VMInputResponse,
+    ) -> Result<Option<VMResponse>, VMInputError> {
+        let res: Result<(), VMInputError> = if let VMState::Waiting(request_type) = &self.state {
             match (input_type, request_type) {
                 (VMInputResponse::Int(n), VMInputRequest::Int) => {
                     if (VM::MIN_INT..=VM::MAX_INT).contains(&n) {
@@ -107,22 +112,29 @@ impl VM {
                     Ok(())
                 }
                 (VMInputResponse::String(s), VMInputRequest::String) => {
-                    let ac = self.registers().2[Registers::AC] as usize;
+                    let addr = self.registers().2[Registers::AC] as usize;
+                    let max_size = self.registers().2[Registers::A] as usize;
                     let mut memory = self.memory.borrow_mut();
-                    for (i, c) in s.chars().enumerate() {
-                        memory.set_addr(ac + i, c as u8 as u16);
+                    let mut size = 0;
+                    for (i, c) in s.as_bytes().iter().enumerate() {
+                        size += 1;
+                        if size >= max_size {
+                            break;
+                        }
+                        memory.set_addr(addr + i, *c as u16, &mut self.events);
                     }
+                    memory.set_addr(addr + usize::min(size, max_size - 1), 0, &mut self.events);
                     Ok(())
                 }
-                _ => Err(VMInputError::WrongType)
+                _ => Err(VMInputError::WrongType),
             }
         } else {
             Err(VMInputError::Unexpected)
         };
-        if res.is_ok() {
+        res.map(|_| {
             self.state = VMState::Active;
-        }
-        res
+            self.resume()
+        })
     }
 
     pub fn microinstructions(&self) -> &Vec<Microinstruction> {
@@ -131,6 +143,9 @@ impl VM {
 
     pub fn is_ready(&self) -> bool {
         self.state != VMState::Uninitialized
+    }
+    pub fn is_active(&self) -> bool {
+        self.state == VMState::Active
     }
     pub fn is_waiting(&self) -> bool {
         if let VMState::Waiting(..) = self.state {
@@ -157,7 +172,31 @@ impl VM {
     }
 
     // Cpu
-    fn advance_microinstruction_no_clear_events(&mut self) -> VMResponse {
+    pub fn execute(&mut self, execution_type: VMExecutionType) -> VMResponse {
+        self.events.clear();
+        self.execution_type = Some(execution_type.clone());
+        let r = match &self.state {
+            VMState::Active => match execution_type {
+                VMExecutionType::Macroinstruction => self.advance_macroinstruction(),
+                VMExecutionType::Microinstruction => self.advance_microinstruction(),
+            },
+            _ => VMResponse::default(),
+        };
+        if discriminant(&self.state) != discriminant(&VMState::Waiting(VMInputRequest::Int)) {
+            self.execution_type = None;
+        }
+        r
+    }
+    pub fn resume(&mut self) -> Option<VMResponse> {
+        if let Some(execution_type) = &self.execution_type
+            && *execution_type == VMExecutionType::Macroinstruction
+        {
+            Some(self.advance_macroinstruction())
+        } else {
+            None
+        }
+    }
+    fn advance_microinstruction(&mut self) -> VMResponse {
         match &self.state {
             VMState::Active => {
                 let (mpc, prev_mpc) = self.cpu.advance_microinstruction(&mut self.events);
@@ -175,33 +214,28 @@ impl VM {
             _ => Default::default(),
         }
     }
-    pub fn advance_microinstruction(&mut self) -> VMResponse {
-        self.events.clear();
-        self.advance_microinstruction_no_clear_events()
-    }
-    fn advance_macroinstruction_no_clear_events(&mut self) -> VMResponse {
+    fn advance_macroinstruction(&mut self) -> VMResponse {
         let mut res = VMResponse::default();
         while self.events.instruction_reads.is_empty() && self.state == VMState::Active {
-            res = self.advance_microinstruction_no_clear_events();
+            res = self.advance_microinstruction();
         }
         res
-    }
-    pub fn advance_macroinstruction(&mut self) -> VMResponse {
-        self.events.clear();
-        self.advance_macroinstruction_no_clear_events()
     }
 
     pub fn reset(&mut self) {
         self.events.clear();
         self.state = VMState::Active;
-        let mut memory = self.memory.borrow_mut();
-        if let Some(mem) = self.initial_memory.take() {
-            memory.clear();
-            memory.load(TEXT_SEGMENT_START, &mem.0);
-            memory.load(DATA_SEGMENT_START, &mem.1);
-            self.initial_memory = Some(mem);
+        {
+            let mut memory = self.memory.borrow_mut();
+            if let Some(mem) = self.initial_memory.take() {
+                memory.clear();
+                memory.load(TEXT_SEGMENT_START, &mem.0);
+                memory.load(DATA_SEGMENT_START, &mem.1);
+                self.initial_memory = Some(mem);
+            }
         }
         self.cpu.reset();
+        self.print_to_stdout("\n\n----- programa reiniciado -----\n\n");
     }
     pub fn registers(&self) -> (u16, u16, &RegisterBank) {
         self.cpu.get_registers()
@@ -221,12 +255,28 @@ impl VM {
                 None
             }
             Syscalls::PRINT_INT_HEX => {
-                let s = format!("0x{:04X}", registers[Registers::AC]);
+                let s = format!("{:04X}", registers[Registers::AC]);
+                self.print_to_stdout(&s);
+                None
+            }
+            Syscalls::PRINT_STRING => {
+                let start = registers[Registers::AC];
+                let s = {
+                    let memory = self.memory.borrow();
+                    let m = memory.get_ref();
+                    let mut i = start as usize;
+                    let mut s = String::new();
+                    while m[i] != 0 {
+                        s.push_str(&(format!("{}", m[i] as u8 as char)));
+                        i += 1;
+                    }
+                    s
+                };
                 self.print_to_stdout(&s);
                 None
             }
             Syscalls::PRINT_INT_BINARY => {
-                let s = format!("0x{:04b}", registers[Registers::AC]);
+                let s = format!("{:016b}", registers[Registers::AC]);
                 self.print_to_stdout(&s);
                 None
             }
@@ -248,6 +298,7 @@ impl VM {
                 Some(VMInputRequest::String)
             }
             Syscalls::HALT => {
+                self.print_to_stdout("\n\n----- programa encerrado (0) -----\n\n");
                 self.state = VMState::Halted;
                 None
             }
@@ -270,7 +321,7 @@ impl Syscalls {
     pub const HALT: u16 = 10;
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VMInputRequest {
     Int,
     Char,
@@ -297,6 +348,12 @@ pub enum VMState {
     Active,
     Waiting(VMInputRequest),
     Halted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VMExecutionType {
+    Macroinstruction,
+    Microinstruction,
 }
 
 #[derive(Debug, Error)]

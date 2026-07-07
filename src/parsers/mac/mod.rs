@@ -241,7 +241,7 @@ impl<'a> ASMParser<'a> {
                     }
                     let num_len = 16 - cur_len;
                     if n >= 0 {
-                        if n > ((1 << (num_len - 1)) - 1) {
+                        if n > ((1 << num_len) - 1) {
                             return Err(ParsingError {
                                 lineno: *lineno,
                                 content,
