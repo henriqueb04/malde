@@ -14,7 +14,8 @@ use egui_extras::{Column, TableBuilder};
 use crate::{
     architecture::signals::CONTROL_SIGNAL_NAMES,
     virtual_machine::{
-        DATA_SEGMENT_START, MEMORY_SIZE, Registers, TEXT_SEGMENT_START, VM, VMExecutionType, VMInputRequest, VMInputResponse, VMResponse
+        DATA_SEGMENT_START, MEMORY_SIZE, Registers, TEXT_SEGMENT_START, VM, VMExecutionType,
+        VMInputRequest, VMInputResponse, VMResponse,
     },
 };
 
@@ -296,7 +297,8 @@ impl MyApp {
                                 self.input_modal_text.chars().next().unwrap(),
                             ));
                         } else {
-                            self.input_model_error = "Deve haver apenas um caractere ASCII".to_string();
+                            self.input_model_error =
+                                "Deve haver apenas um caractere ASCII".to_string();
                         }
                     }
                     VMInputRequest::String => {
@@ -305,7 +307,8 @@ impl MyApp {
                                 self.input_modal_text.clone(),
                             ));
                         } else {
-                            self.input_model_error = "Todos os carateres precisam ser do padrão ASCII".to_string();
+                            self.input_model_error =
+                                "Todos os carateres precisam ser do padrão ASCII".to_string();
                         }
                     }
                 }
@@ -443,9 +446,9 @@ impl MyApp {
                         .get_events()
                         .register_writes
                         .contains_key(&(row_index as u8))
-                        {
-                            row.set_selected(true);
-                        }
+                    {
+                        row.set_selected(true);
+                    }
                     row.col(|ui| {
                         ui.label(row_index.to_string());
                     });
@@ -453,27 +456,37 @@ impl MyApp {
                         ui.label(reg_name);
                     });
                     row.col(|ui| {
-                        let label = egui::Label::new(
-                            if reg_name == "ir"
-                                || reg_name == "tir"
-                                || reg_name == "amask"
-                                || reg_name == "smask"
-                                {
-                                    format!("0b{:016b}", registers[row_index])
-                                } else {
-                                    self.format_value(registers[row_index] as usize)
-                                },
-                        );
-                        if let Some(event) =
-                                &self.vm.get_events().register_writes.get(&(row_index as u8))
-                            {
-                                ui.add(label).on_hover_text(format!(
-                                    "Anterior: {}",
-                                    self.format_value(event.before as usize)
-                                ));
-                            } else {
-                                ui.add(label);
+                        let mut hover: Option<&'static str> = None;
+                        let label = egui::Label::new(match reg_name {
+                            "ir" | "tir" | "amask" | "smask" => {
+                                egui::RichText::new(format!("0b{:016b}", registers[row_index]))
                             }
+                            "sp" => {
+                                let v = registers[row_index] as usize;
+                                let t = self.format_value(v);
+                                if v < DATA_SEGMENT_START {
+                                    hover = Some("Registrador sp dentro do segmento de instruções");
+                                    egui::RichText::new(t).underline()
+                                } else {
+                                    egui::RichText::new(t)
+                                }
+                            }
+                            _ => egui::RichText::new(
+                                self.format_value(registers[row_index] as usize),
+                            ),
+                        });
+                        if let Some(hover) = hover {
+                            ui.add(label).on_hover_text(hover);
+                        } else if let Some(event) =
+                            &self.vm.get_events().register_writes.get(&(row_index as u8))
+                        {
+                            ui.add(label).on_hover_text(format!(
+                                "Anterior: {}",
+                                self.format_value(event.before as usize)
+                            ));
+                        } else {
+                            ui.add(label);
+                        }
                     });
                 });
             });
@@ -510,7 +523,7 @@ impl MyApp {
 
     fn stdout_ui(&mut self, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.label(self.vm.get_stdout());
+            ui.monospace(self.vm.get_stdout());
         });
     }
 
