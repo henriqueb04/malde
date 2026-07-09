@@ -1,5 +1,5 @@
 use crate::architecture::{events::EventHandler, signals::ControlSignals};
-use log::{info, warn};
+use log::info;
 
 pub type MemoryArray = [u16; MEMORY_SIZE];
 
@@ -49,7 +49,6 @@ impl Memory {
         }
         if self.previous_mar != *mar {
             events.mar_conflict(self.previous_mar, *mar);
-            info!("mar conflict")
         } else {
             let before = *mbr;
             *mbr = self.memory[*mar as usize];
@@ -64,14 +63,10 @@ impl Memory {
         }
         if self.previous_mar != *mar {
             events.mar_conflict(self.previous_mar, *mar);
-            info!("mar conflict")
         } else if self.previous_mbr != *mbr {
             events.mbr_conflict(self.previous_mbr, *mbr);
-            info!("mbr conflict")
         } else {
-            let before = self.memory[self.previous_mar as usize];
-            self.memory[*mar as usize] = *mbr;
-            events.memory_write(self.previous_mar, before, self.memory[*mar as usize]);
+            self.set_addr(*mar as usize, *mbr, events);
         }
     }
 
@@ -83,11 +78,11 @@ impl Memory {
         events: &mut EventHandler,
     ) {
         if *mar >= MEMORY_SIZE as u16 {
-            warn!("Endereço {} é maior que memória! Ignorando...", mar);
+            info!("Endereço {} é maior que memória! Ignorando...", mar);
+            return;
         }
         let rd = &signals.rd;
         let wr = &signals.wr;
-        info!("{}, {}", rd, wr);
         if !rd && !wr {
             self.rd_clock_count = 0;
             self.wr_clock_count = 0;
@@ -106,6 +101,14 @@ impl Memory {
 
     pub fn get_ref(&self) -> &MemoryArray {
         &self.memory
+    }
+
+    pub fn set_addr(&mut self, addr: usize, value: u16, events: &mut EventHandler) {
+        if (DATA_SEGMENT_START..MEMORY_SIZE).contains(&addr) {
+            let before = self.memory[addr];
+            self.memory[addr] = value;
+            events.memory_write(addr as u16, before, self.memory[addr]);
+        }
     }
 }
 

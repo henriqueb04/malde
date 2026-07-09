@@ -10,7 +10,7 @@ use control::{ControlUnit, MicroMem};
 use datapath::Datapath;
 use memory::Memory;
 
-use crate::architecture::events::EventHandler;
+use crate::architecture::{datapath::RegisterBank, events::EventHandler};
 
 pub struct Cpu {
     datapath: Datapath,
@@ -40,12 +40,15 @@ impl Cpu {
         (mpc, prev_mpc)
     }
 
-    pub fn get_registers(&self) -> (u16, u16, &[u16; 16]) {
+    pub fn get_registers(&self) -> (u16, u16, &RegisterBank) {
         (
             self.datapath.mar,
             self.datapath.mbr,
-            self.datapath.get_registers(),
+            self.datapath.registers(),
         )
+    }
+    pub fn set_register(&mut self, register: usize, value: u16) {
+        self.datapath.registers_mut()[register] = value;
     }
 
     pub fn reset(&mut self) {

@@ -131,6 +131,7 @@ impl<'a> ControlSignalsBuilder<'a> {
         let _ = self.set_int("c", 0);
         let _ = self.set_int("b", 0);
         let _ = self.set_int("a", 0);
+        let _ = self.set_bool("syscall", false);
     }
 
     pub fn build(self) -> ControlSignals {
@@ -148,6 +149,7 @@ impl<'a> ControlSignalsBuilder<'a> {
             b: self.get_int("b").unwrap_or(0),
             a: self.get_int("a").unwrap_or(0),
             addr: self.get_addr(),
+            syscall: self.get_bool("syscall").unwrap_or(false),
         }
     }
 }

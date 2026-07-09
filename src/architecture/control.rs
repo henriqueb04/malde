@@ -3,7 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::architecture::signals::{ALUSignals, ControlSignals};
 
-const MICROMEM_MAX_SIZE: usize = (1 << 10) - 1;
+const MICROMEM_MAX_SIZE: usize = 1 << 10;
 
 #[derive(Default)]
 pub struct MicroMem {
@@ -24,8 +24,14 @@ impl MicroMem {
         }
     }
 
-    fn load_instruction(&self, mpc: &usize, mir: &mut ControlSignals) {
-        *mir = ControlSignals::from(&self.microinstructions[*mpc]);
+    fn get_instruction(&self, mpc: &usize) -> ControlSignals {
+        if *mpc < self.len {
+            ControlSignals::from(&self.microinstructions[*mpc])
+        } else if self.len > 0 {
+            ControlSignals::from(&self.microinstructions[0])
+        } else {
+            ControlSignals::default()
+        }
     }
 }
 
@@ -47,9 +53,7 @@ impl ControlUnit {
     }
 
     pub fn load_signals(&mut self) {
-        self.micro_mem
-            .borrow_mut()
-            .load_instruction(&self.mpc, &mut self.signals);
+        self.signals = self.micro_mem.borrow().get_instruction(&self.mpc);
     }
 
     pub fn advance(&mut self, alu_sigs: &ALUSignals) -> (usize, usize) {

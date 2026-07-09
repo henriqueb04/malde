@@ -12,7 +12,7 @@ pub const MAX_DATA_LIMIT: usize = MEMORY_SIZE - DATA_SEGMENT_START;
 
 pub use crate::parsers::mac::errors::*;
 
-pub const DEFAULT_KEYWORDS: [(&str, &str); 24] = [
+pub const DEFAULT_KEYWORDS: [(&str, &str); 30] = [
     ("LODD", "0000"),
     ("STOD", "0001"),
     ("ADDD", "0010"),
@@ -34,6 +34,12 @@ pub const DEFAULT_KEYWORDS: [(&str, &str); 24] = [
     ("POP", "1111011000000000"),
     ("RETN", "1111100000000000"),
     ("SWAP", "1111101000000000"),
+    ("SWAPA", "1111111100000000"),
+    ("SWAPB", "1111111100100000"),
+    ("SWAPC", "1111111101000000"),
+    ("SWAPD", "1111111101100000"),
+    ("SWAPE", "1111111110000000"),
+    ("ECALL", "1111111111000000"),
     ("HALT", "0000000000000000"),
     ("INSP", "11111100"),
     ("DESP", "11111110"),
@@ -235,7 +241,7 @@ impl<'a> ASMParser<'a> {
                     }
                     let num_len = 16 - cur_len;
                     if n >= 0 {
-                        if n > ((1 << (num_len - 1)) - 1) {
+                        if n > ((1 << num_len) - 1) {
                             return Err(ParsingError {
                                 lineno: *lineno,
                                 content,

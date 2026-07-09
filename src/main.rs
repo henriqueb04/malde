@@ -8,13 +8,14 @@ use log::{debug, error};
 
 use std::{fmt::Display, fs};
 
-use eframe::egui;
+use eframe::egui::{self, Color32};
 use egui_extras::{Column, TableBuilder};
 
 use crate::{
     architecture::signals::CONTROL_SIGNAL_NAMES,
     virtual_machine::{
-        DATA_SEGMENT_START, MEMORY_SIZE, REGISTER_NAMES, TEXT_SEGMENT_START, VM, VMResponse,
+        DATA_SEGMENT_START, MEMORY_SIZE, Registers, TEXT_SEGMENT_START, VM, VMExecutionType,
+        VMInputRequest, VMInputResponse, VMResponse,
     },
 };
 
@@ -38,6 +39,9 @@ pub struct MyApp {
     microprogram: Option<String>,
     msg_modal_open: bool,
     msg_modal_text: String,
+    input_modal_type: Option<VMInputRequest>,
+    input_modal_text: String,
+    input_model_error: String,
     value_format: ValueFormatType,
     cur_mpc: usize,
     next_mpc: usize,
@@ -100,7 +104,7 @@ impl eframe::App for MyApp {
             });
             ui.separator();
             let available_height = ui.available_height();
-            if self.vm.is_ready() {
+            if !self.vm.microinstructions().is_empty() {
                 let mut mal_table = TableBuilder::new(ui)
                     .striped(true)
                     .resizable(false)
@@ -113,7 +117,7 @@ impl eframe::App for MyApp {
                 if let Some(mpc) = self.scroll_mpc.take() {
                     mal_table = mal_table.scroll_to_row(mpc, None);
                 }
-                let mics = self.vm.get_microinstructions();
+                let mics = self.vm.microinstructions();
                 mal_table.body(|body| {
                     body.rows(text_height, mics.len(), |mut row| {
                         let row_index = row.index();
@@ -146,6 +150,13 @@ impl eframe::App for MyApp {
                 });
             }
         });
+        if let Some(input_type) = self.input_modal_type.clone() {
+            egui::Modal::new(egui::Id::new("Input modal")).show(ui, |ui| {
+                ui.set_width(300.0);
+                ui.heading("Entrada");
+                self.input_request_ui(ui, &input_type);
+            });
+        }
         if self.msg_modal_open {
             let modal = egui::Modal::new(egui::Id::new("Msg modal 1")).show(ui, |ui| {
                 ui.set_width(300.0);
@@ -172,7 +183,7 @@ impl MyApp {
     fn new() -> Self {
         MyApp {
             // FIXME: retirar caminhos fixos
-            macroprogram: Some(String::from("/home/henrique/code/mac1/teste2.asm")),
+            macroprogram: Some(String::from("/home/henrique/code/mac1/teste3.asm")),
             microprogram: Some(String::from("/home/henrique/code/mac1/malde.mal")),
             vm: VM::new(),
             mem_goto: Some(MemGoto::Data),
@@ -204,20 +215,40 @@ impl MyApp {
         self.next_mpc = 0;
     }
 
-    fn advance_microinstruction(&mut self) {
-        let VMResponse { mpc, prev_mpc } = self.vm.advance_microinstruction();
+    fn execute(&mut self, execution_type: VMExecutionType) {
+        let res = self.vm.execute(execution_type);
+        self.handle_response(res);
+    }
+
+    fn handle_response(&mut self, res: VMResponse) {
+        let VMResponse {
+            mpc,
+            prev_mpc,
+            request,
+        } = res;
+        if let Some(request) = request {
+            self.handle_input_request(request);
+        }
         self.next_mpc = mpc;
         self.cur_mpc = prev_mpc;
         self.scroll_mpc = Some(self.cur_mpc);
         self.selected = self.cur_mpc;
     }
 
-    fn advance_macroinstruction(&mut self) {
-        let VMResponse { mpc, prev_mpc } = self.vm.advance_macroinstruction();
-        self.next_mpc = mpc;
-        self.cur_mpc = prev_mpc;
-        self.scroll_mpc = Some(self.cur_mpc);
-        self.selected = self.cur_mpc;
+    fn send_input_response(&mut self, inp: VMInputResponse) {
+        match self.vm.handle_input(inp) {
+            Ok(res) => {
+                if let Some(res) = res {
+                    self.handle_response(res);
+                }
+                self.input_modal_type = None;
+                self.input_modal_text = String::new();
+                self.input_model_error = String::new();
+            }
+            Err(err) => {
+                self.input_model_error = err.to_string();
+            }
+        }
     }
 
     ////////////
@@ -238,6 +269,53 @@ impl MyApp {
         self.msg_modal_open = true;
     }
 
+    fn handle_input_request(&mut self, request_type: VMInputRequest) {
+        self.input_modal_type = Some(request_type);
+        self.input_modal_text = String::new();
+    }
+    fn input_request_ui(&mut self, ui: &mut egui::Ui, request_type: &VMInputRequest) {
+        ui.vertical(|ui| {
+            ui.label(match request_type {
+                VMInputRequest::Int => "Digite um número:",
+                VMInputRequest::Char => "Digite um caractere:",
+                VMInputRequest::String => "Digite um texto:",
+            });
+            ui.add(egui::TextEdit::singleline(&mut self.input_modal_text));
+            ui.colored_label(Color32::RED, self.input_model_error.clone());
+            if ui.button("Enviar").clicked() {
+                match request_type {
+                    VMInputRequest::Int => {
+                        if let Ok(n) = self.input_modal_text.parse::<isize>() {
+                            self.send_input_response(VMInputResponse::Int(n));
+                        } else {
+                            self.input_model_error = "Número inválido".to_string();
+                        }
+                    }
+                    VMInputRequest::Char => {
+                        if self.input_modal_text.len() == 1 && self.input_modal_text.is_ascii() {
+                            self.send_input_response(VMInputResponse::Char(
+                                self.input_modal_text.chars().next().unwrap(),
+                            ));
+                        } else {
+                            self.input_model_error =
+                                "Deve haver apenas um caractere ASCII".to_string();
+                        }
+                    }
+                    VMInputRequest::String => {
+                        if self.input_modal_text.is_ascii() {
+                            self.send_input_response(VMInputResponse::String(
+                                self.input_modal_text.clone(),
+                            ));
+                        } else {
+                            self.input_model_error =
+                                "Todos os carateres precisam ser do padrão ASCII".to_string();
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     fn side_panel_ui(&mut self, ui: &mut egui::Ui) {
         let text_height = egui::TextStyle::Body
             .resolve(ui.style())
@@ -245,18 +323,22 @@ impl MyApp {
             .max(ui.spacing().interact_size.y);
         if self.vm.is_ready() {
             ui.horizontal(|ui| {
-                if ui.button("Próxima microinstrução").clicked() {
-                    self.advance_microinstruction();
-                }
-                if ui.button("Próxima macroinstrução").clicked() {
-                    self.advance_macroinstruction();
-                }
                 if ui.button("Resetar").clicked() {
                     self.reset_vm();
                 }
+                ui.add_enabled_ui(self.vm.is_active(), |ui| {
+                    if ui.button("Próxima microinstrução").clicked() {
+                        self.execute(VMExecutionType::Microinstruction);
+                    }
+                    if ui.button("Próxima macroinstrução").clicked() {
+                        self.execute(VMExecutionType::Macroinstruction);
+                    }
+                });
             });
-            ui.separator();
-            let mir = &self.vm.get_microinstructions()[self.selected].mir;
+        };
+        ui.separator();
+        if self.vm.is_ready() {
+            let mir = &self.vm.microinstructions()[self.selected].mir;
             ui.set_min_width(50.0);
             ui.strong("Registrador de Microinstrução:");
             let mir_vals = mir.to_array();
@@ -280,7 +362,7 @@ impl MyApp {
                     });
                 })
                 .body(|body| {
-                    body.rows(text_height, 13, |mut row| {
+                    body.rows(text_height, 14, |mut row| {
                         let row_index = row.index();
                         row.col(|ui| {
                             ui.label(CONTROL_SIGNAL_NAMES[row_index]);
@@ -290,114 +372,124 @@ impl MyApp {
                         });
                     });
                 });
-            ui.strong("Registradores:");
-            let (mar, mbr, registers) = self.vm.get_registers();
-            let reg_table = TableBuilder::new(ui)
-                .auto_shrink([true; 2])
-                .id_salt("reg_table")
-                .striped(true)
-                .resizable(false)
-                .cell_layout(egui::Layout::top_down(egui::Align::Center))
-                .column(Column::auto())
-                .column(Column::auto())
-                .column(Column::remainder().clip(true).resizable(true))
-                .min_scrolled_height(0.0);
-            reg_table
-                .header(text_height, |mut header| {
-                    header.col(|ui| {
-                        ui.strong("Número");
+        }
+        ui.strong("Registradores:");
+        let (mar, mbr, registers) = self.vm.registers();
+        let reg_table = TableBuilder::new(ui)
+            .auto_shrink([true; 2])
+            .id_salt("reg_table")
+            .striped(true)
+            .resizable(false)
+            .cell_layout(egui::Layout::top_down(egui::Align::Center))
+            .column(Column::auto())
+            .column(Column::auto())
+            .column(Column::remainder().clip(true).resizable(true))
+            .min_scrolled_height(0.0);
+        reg_table
+            .header(text_height, |mut header| {
+                header.col(|ui| {
+                    ui.strong("Número");
+                });
+                header.col(|ui| {
+                    ui.strong("Registrador");
+                });
+                header.col(|ui| {
+                    ui.strong("Valor");
+                });
+            })
+            .body(|mut body| {
+                body.row(text_height, |mut row| {
+                    row.set_selected(self.vm.events().mar_written.is_some());
+                    row.col(|ui| {
+                        ui.label("");
                     });
-                    header.col(|ui| {
-                        ui.strong("Registrador");
+                    row.col(|ui| {
+                        ui.label("mar");
                     });
-                    header.col(|ui| {
-                        ui.strong("Valor");
-                    });
-                })
-                .body(|mut body| {
-                    body.row(text_height, |mut row| {
-                        row.set_selected(self.vm.get_events().mar_written.is_some());
-                        row.col(|ui| {
-                            ui.label("");
-                        });
-                        row.col(|ui| {
-                            ui.label("mar");
-                        });
-                        row.col(|ui| {
-                            let label = egui::Label::new(self.format_value(mar as usize));
-                            if let Some(event) = &self.vm.get_events().mar_written {
-                                ui.add(label).on_hover_text(format!(
-                                    "Anterior: {}",
-                                    self.format_value(event.before as usize)
-                                ));
-                            } else {
-                                ui.add(label);
-                            }
-                        });
-                    });
-                    body.row(text_height, |mut row| {
-                        row.set_selected(self.vm.get_events().mbr_written.is_some());
-                        row.col(|ui| {
-                            ui.label("");
-                        });
-                        row.col(|ui| {
-                            ui.label("mbr");
-                        });
-                        row.col(|ui| {
-                            let label = egui::Label::new(self.format_value(mbr as usize));
-                            if let Some(event) = &self.vm.get_events().mbr_written {
-                                ui.add(label).on_hover_text(format!(
-                                    "Anterior: {}",
-                                    self.format_value(event.before as usize)
-                                ));
-                            } else {
-                                ui.add(label);
-                            }
-                        });
-                    });
-                    body.rows(text_height, 16, |mut row| {
-                        let row_index = row.index();
-                        let reg_name = REGISTER_NAMES.get(row_index).map_or("", |v| v);
-                        if self
-                            .vm
-                            .get_events()
-                            .register_writes
-                            .contains_key(&(row_index as u8))
-                        {
-                            row.set_selected(true);
+                    row.col(|ui| {
+                        let label = egui::Label::new(self.format_value(mar as usize));
+                        if let Some(event) = &self.vm.events().mar_written {
+                            ui.add(label).on_hover_text(format!(
+                                "Anterior: {}",
+                                self.format_value(event.before as usize)
+                            ));
+                        } else {
+                            ui.add(label);
                         }
-                        row.col(|ui| {
-                            ui.label(row_index.to_string());
-                        });
-                        row.col(|ui| {
-                            ui.label(reg_name);
-                        });
-                        row.col(|ui| {
-                            let label = egui::Label::new(
-                                if reg_name == "ir"
-                                    || reg_name == "tir"
-                                    || reg_name == "amask"
-                                    || reg_name == "smask"
-                                {
-                                    format!("0b{:016b}", registers[row_index])
-                                } else {
-                                    self.format_value(registers[row_index] as usize)
-                                },
-                            );
-                            if let Some(event) =
-                                &self.vm.get_events().register_writes.get(&(row_index as u8))
-                            {
-                                ui.add(label).on_hover_text(format!(
-                                    "Anterior: {}",
-                                    self.format_value(event.before as usize)
-                                ));
-                            } else {
-                                ui.add(label);
-                            }
-                        });
                     });
                 });
-        }
+                body.row(text_height, |mut row| {
+                    row.set_selected(self.vm.events().mbr_written.is_some());
+                    row.col(|ui| {
+                        ui.label("");
+                    });
+                    row.col(|ui| {
+                        ui.label("mbr");
+                    });
+                    row.col(|ui| {
+                        let label = egui::Label::new(self.format_value(mbr as usize));
+                        if let Some(event) = &self.vm.events().mbr_written {
+                            ui.add(label).on_hover_text(format!(
+                                "Anterior: {}",
+                                self.format_value(event.before as usize)
+                            ));
+                        } else {
+                            ui.add(label);
+                        }
+                    });
+                });
+                body.rows(text_height, 16, |mut row| {
+                    let row_index = row.index();
+                    let reg_name = Registers::NAMES.get(row_index).map_or("", |v| v);
+                    if self
+                        .vm
+                        .events()
+                        .register_writes
+                        .contains_key(&(row_index as u8))
+                    {
+                        row.set_selected(true);
+                    }
+                    row.col(|ui| {
+                        ui.label(row_index.to_string());
+                    });
+                    row.col(|ui| {
+                        ui.label(reg_name);
+                    });
+                    row.col(|ui| {
+                        let mut hover: Option<&'static str> = None;
+                        let label = egui::Label::new(match reg_name {
+                            "ir" | "tir" | "amask" | "smask" => {
+                                egui::RichText::new(format!("0b{:016b}", registers[row_index]))
+                            }
+                            "sp" => {
+                                let v = registers[row_index] as usize;
+                                let t = self.format_value(v);
+                                if v < DATA_SEGMENT_START {
+                                    hover = Some("Registrador sp dentro do segmento de instruções");
+                                    egui::RichText::new(t).underline()
+                                } else {
+                                    egui::RichText::new(t)
+                                }
+                            }
+                            _ => egui::RichText::new(
+                                self.format_value(registers[row_index] as usize),
+                            ),
+                        });
+                        if let Some(hover) = hover {
+                            ui.add(label).on_hover_text(hover);
+                        } else if let Some(event) =
+                            &self.vm.events().register_writes.get(&(row_index as u8))
+                        {
+                            ui.add(label).on_hover_text(format!(
+                                "Anterior: {}",
+                                self.format_value(event.before as usize)
+                            ));
+                        } else {
+                            ui.add(label);
+                        }
+                    });
+                });
+            });
     }
 
     fn bottom_panel_ui(&mut self, ui: &mut egui::Ui) {
@@ -431,7 +523,7 @@ impl MyApp {
 
     fn stdout_ui(&mut self, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.label(self.vm.get_stdout());
+            ui.monospace(self.vm.stdout());
         });
     }
 
@@ -440,7 +532,7 @@ impl MyApp {
             self.mem_view_index = goto.get_slot();
             self.last_mem_goto = goto;
         }
-        let memory = self.vm.get_memory();
+        let memory = self.vm.memory();
         let text_height = egui::TextStyle::Body
             .resolve(ui.style())
             .size
@@ -483,7 +575,7 @@ impl MyApp {
                             let mem_slot = row_index + i;
                             let before = self
                                 .vm
-                                .get_events()
+                                .events()
                                 .memory_writes
                                 .get(&(mem_slot as u16))
                                 .map(|v| v.before);
