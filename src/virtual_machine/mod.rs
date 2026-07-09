@@ -1,14 +1,20 @@
 use thiserror::Error;
 
-use crate::architecture::datapath::RegisterBank;
-use crate::architecture::events::EventHandler;
-use crate::architecture::memory::{Memory, MemoryArray};
-use std::cell::Ref;
-use std::mem::discriminant;
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{
+    cell::{Ref, RefCell},
+    collections::HashMap,
+    mem::discriminant,
+    rc::Rc,
+};
 
 use crate::{
-    architecture::{Cpu, control::MicroMem},
+    architecture::{
+        Cpu,
+        control::MicroMem,
+        datapath::RegisterBank,
+        events::EventHandler,
+        memory::{Memory, MemoryArray},
+    },
     parsers::{
         mac::{ASMParser, DEFAULT_KEYWORDS, ParsingError as ASMParsingError},
         mal::{MALParser, Microinstruction, ParsingError as MALParsingError},
@@ -58,14 +64,10 @@ impl VM {
         }
     }
 
-    pub fn print_to_stdout(&mut self, s: &str) {
-        self.stdout.push_str(s);
-        print!("{}", s);
-    }
-    pub fn get_stdout(&self) -> &String {
+    pub fn stdout(&self) -> &String {
         &self.stdout
     }
-    pub fn get_events(&self) -> &EventHandler {
+    pub fn events(&self) -> &EventHandler {
         &self.events
     }
 
@@ -147,11 +149,10 @@ impl VM {
     pub fn is_active(&self) -> bool {
         self.state == VMState::Active
     }
-    pub fn is_waiting(&self) -> bool {
-        if let VMState::Waiting(..) = self.state {
-            return true;
-        };
-        false
+
+    fn print_to_stdout(&mut self, s: &str) {
+        self.stdout.push_str(s);
+        print!("{}", s);
     }
 
     // Memory
@@ -167,7 +168,7 @@ impl VM {
             memory.load(DATA_SEGMENT_START, initial_data);
         }
     }
-    pub fn get_memory(&self) -> Ref<'_, MemoryArray> {
+    pub fn memory(&self) -> Ref<'_, MemoryArray> {
         Ref::map(self.memory.borrow(), |memory| memory.get_ref())
     }
 
@@ -225,15 +226,7 @@ impl VM {
     pub fn reset(&mut self) {
         self.events.clear();
         self.state = VMState::Active;
-        {
-            let mut memory = self.memory.borrow_mut();
-            if let Some(mem) = self.initial_memory.take() {
-                memory.clear();
-                memory.load(TEXT_SEGMENT_START, &mem.0);
-                memory.load(DATA_SEGMENT_START, &mem.1);
-                self.initial_memory = Some(mem);
-            }
-        }
+        self.reset_memory();
         self.cpu.reset();
         self.print_to_stdout("\n\n----- programa reiniciado -----\n\n");
     }

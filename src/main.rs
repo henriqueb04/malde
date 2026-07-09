@@ -151,7 +151,7 @@ impl eframe::App for MyApp {
             }
         });
         if let Some(input_type) = self.input_modal_type.clone() {
-            let modal = egui::Modal::new(egui::Id::new("Input modal")).show(ui, |ui| {
+            egui::Modal::new(egui::Id::new("Input modal")).show(ui, |ui| {
                 ui.set_width(300.0);
                 ui.heading("Entrada");
                 self.input_request_ui(ui, &input_type);
@@ -399,7 +399,7 @@ impl MyApp {
             })
             .body(|mut body| {
                 body.row(text_height, |mut row| {
-                    row.set_selected(self.vm.get_events().mar_written.is_some());
+                    row.set_selected(self.vm.events().mar_written.is_some());
                     row.col(|ui| {
                         ui.label("");
                     });
@@ -408,7 +408,7 @@ impl MyApp {
                     });
                     row.col(|ui| {
                         let label = egui::Label::new(self.format_value(mar as usize));
-                        if let Some(event) = &self.vm.get_events().mar_written {
+                        if let Some(event) = &self.vm.events().mar_written {
                             ui.add(label).on_hover_text(format!(
                                 "Anterior: {}",
                                 self.format_value(event.before as usize)
@@ -419,7 +419,7 @@ impl MyApp {
                     });
                 });
                 body.row(text_height, |mut row| {
-                    row.set_selected(self.vm.get_events().mbr_written.is_some());
+                    row.set_selected(self.vm.events().mbr_written.is_some());
                     row.col(|ui| {
                         ui.label("");
                     });
@@ -428,7 +428,7 @@ impl MyApp {
                     });
                     row.col(|ui| {
                         let label = egui::Label::new(self.format_value(mbr as usize));
-                        if let Some(event) = &self.vm.get_events().mbr_written {
+                        if let Some(event) = &self.vm.events().mbr_written {
                             ui.add(label).on_hover_text(format!(
                                 "Anterior: {}",
                                 self.format_value(event.before as usize)
@@ -443,7 +443,7 @@ impl MyApp {
                     let reg_name = Registers::NAMES.get(row_index).map_or("", |v| v);
                     if self
                         .vm
-                        .get_events()
+                        .events()
                         .register_writes
                         .contains_key(&(row_index as u8))
                     {
@@ -478,7 +478,7 @@ impl MyApp {
                         if let Some(hover) = hover {
                             ui.add(label).on_hover_text(hover);
                         } else if let Some(event) =
-                            &self.vm.get_events().register_writes.get(&(row_index as u8))
+                            &self.vm.events().register_writes.get(&(row_index as u8))
                         {
                             ui.add(label).on_hover_text(format!(
                                 "Anterior: {}",
@@ -523,7 +523,7 @@ impl MyApp {
 
     fn stdout_ui(&mut self, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.monospace(self.vm.get_stdout());
+            ui.monospace(self.vm.stdout());
         });
     }
 
@@ -532,7 +532,7 @@ impl MyApp {
             self.mem_view_index = goto.get_slot();
             self.last_mem_goto = goto;
         }
-        let memory = self.vm.get_memory();
+        let memory = self.vm.memory();
         let text_height = egui::TextStyle::Body
             .resolve(ui.style())
             .size
@@ -575,7 +575,7 @@ impl MyApp {
                             let mem_slot = row_index + i;
                             let before = self
                                 .vm
-                                .get_events()
+                                .events()
                                 .memory_writes
                                 .get(&(mem_slot as u16))
                                 .map(|v| v.before);

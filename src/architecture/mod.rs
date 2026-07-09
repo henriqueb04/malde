@@ -44,11 +44,11 @@ impl Cpu {
         (
             self.datapath.mar,
             self.datapath.mbr,
-            self.datapath.get_registers(),
+            self.datapath.registers(),
         )
     }
     pub fn set_register(&mut self, register: usize, value: u16) {
-        self.datapath.get_registers_mut()[register] = value;
+        self.datapath.registers_mut()[register] = value;
     }
 
     pub fn reset(&mut self) {

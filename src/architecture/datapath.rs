@@ -125,10 +125,10 @@ impl Datapath {
         self.mbr = 0;
     }
 
-    pub fn get_registers(&self) -> &RegisterBank {
+    pub fn registers(&self) -> &RegisterBank {
         &self.registers
     }
-    pub fn get_registers_mut(&mut self) -> &mut RegisterBank {
+    pub fn registers_mut(&mut self) -> &mut RegisterBank {
         &mut self.registers
     }
 }
