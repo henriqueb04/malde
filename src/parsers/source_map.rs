@@ -11,14 +11,16 @@ pub struct SourceMap<'a> {
 
 impl<'a> SourceMap<'a> {
     pub fn get_span(&self, span: &Span) -> &'a str {
-        &self.content[span.start..span.end]
+        self.content
+            .get(span.start..(usize::min(self.content.len(), span.end)))
+            .unwrap_or("")
     }
     pub fn get<T: HasSpan>(&self, token: &T) -> &'a str {
         self.get_span(token.span())
     }
     pub fn end(&self) -> Span {
         let lines = self.content.lines();
-        let (count, last) = lines.fold((0, ""), |(c, _), x| (c+1, x));
+        let (count, last) = lines.fold((0, ""), |(c, _), x| (c + 1, x));
         Span {
             start: self.content.len(),
             end: self.content.len(),
