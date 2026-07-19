@@ -13,6 +13,7 @@ use egui_extras::{Column, TableBuilder};
 
 use crate::{
     architecture::signals::CONTROL_SIGNAL_NAMES,
+    parsers::source_map::SourceMap,
     virtual_machine::{
         DATA_SEGMENT_START, MEMORY_SIZE, Registers, TEXT_SEGMENT_START, VM, VMExecutionType,
         VMInputRequest, VMInputResponse, VMResponse,
@@ -43,22 +44,22 @@ pub struct MyApp {
     input_modal_text: String,
     input_model_error: String,
     value_format: ValueFormatType,
-    cur_mpc: usize,
-    next_mpc: usize,
-    selected: usize,
+    prev_mpc: usize,
+    mpc: usize,
     scroll_mpc: Option<usize>,
+    prev_pc: usize,
+    pc: usize,
+    scroll_pc: Option<usize>,
+    selected: usize,
     mem_view_index: usize,
     mem_goto: Option<MemGoto>,
     last_mem_goto: MemGoto,
     bottom_panel_tab: BottomPanelTab,
+    instruction_table_tab: InstructionTableTab,
 }
 
 impl eframe::App for MyApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let text_height = egui::TextStyle::Body
-            .resolve(ui.style())
-            .size
-            .max(ui.spacing().interact_size.y);
         egui::Panel::right("right_panel")
             .resizable(true)
             .default_size(350.0)
@@ -103,52 +104,7 @@ impl eframe::App for MyApp {
                 }
             });
             ui.separator();
-            let available_height = ui.available_height();
-            if !self.vm.microinstructions().is_empty() {
-                let mut mal_table = TableBuilder::new(ui)
-                    .striped(true)
-                    .resizable(false)
-                    .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                    .column(Column::auto())
-                    .column(Column::remainder().clip(true))
-                    .min_scrolled_height(0.0)
-                    .max_scroll_height(available_height)
-                    .sense(egui::Sense::click());
-                if let Some(mpc) = self.scroll_mpc.take() {
-                    mal_table = mal_table.scroll_to_row(mpc, None);
-                }
-                let mics = self.vm.microinstructions();
-                mal_table.body(|body| {
-                    body.rows(text_height, mics.len(), |mut row| {
-                        let row_index = row.index();
-                        row.set_selected(row_index == self.selected);
-                        row.col(|ui| {
-                            if row_index == self.cur_mpc {
-                                ui.strong(row_index.to_string());
-                            } else {
-                                ui.label(row_index.to_string());
-                            }
-                        });
-                        row.col(|ui| {
-                            let text = mics
-                                .get(row_index)
-                                .map(|v| v.content.as_str())
-                                .unwrap_or("");
-                            if row_index == self.next_mpc {
-                                ui.label(egui::RichText::new(text).monospace().strong())
-                                    .on_hover_text("Próxima microinstrução");
-                            } else if row_index == self.cur_mpc {
-                                ui.monospace(text).on_hover_text("Microinstrução executada");
-                            } else {
-                                ui.monospace(text);
-                            }
-                        });
-                        if row.response().clicked() {
-                            self.selected = row_index;
-                        }
-                    });
-                });
-            }
+            self.instruction_table_ui(ui);
         });
         if let Some(input_type) = self.input_modal_type.clone() {
             egui::Modal::new(egui::Id::new("Input modal")).show(ui, |ui| {
@@ -161,7 +117,7 @@ impl eframe::App for MyApp {
             let modal = egui::Modal::new(egui::Id::new("Msg modal 1")).show(ui, |ui| {
                 ui.set_width(300.0);
                 ui.heading("Message");
-                ui.label(self.msg_modal_text.clone());
+                ui.monospace(self.msg_modal_text.clone());
                 egui::Sides::new().show(
                     ui,
                     |_ui| {},
@@ -200,24 +156,32 @@ impl MyApp {
         };
     }
     fn assemble_macro(&mut self, path: &str) {
-        let Ok(contents) = fs::read_to_string(path) else {
-            self.show_error_modal(String::from("Falha ao ler arquivo"));
-            return;
-        };
-        if let Err(err) = self.vm.assemble_mac(&contents) {
-            self.show_error_modal(err.to_string());
-        };
+        match SourceMap::from_filepath(path) {
+            Ok(source_map) => {
+                if let Err(err) = self.vm.assemble_mac(&source_map) {
+                    self.show_error_modal(err.to_string());
+                };
+            }
+            Err(err) => {
+                self.show_error_modal(format!("Falha ao ler arquivo: {}", err));
+            }
+        }
     }
     fn reset_vm(&mut self) {
         self.vm.reset();
         self.selected = 0;
-        self.cur_mpc = 0;
-        self.next_mpc = 0;
+        self.prev_mpc = 0;
+        self.mpc = 0;
     }
 
     fn execute(&mut self, execution_type: VMExecutionType) {
         let res = self.vm.execute(execution_type);
         self.handle_response(res);
+        if let Some(pc) = self.vm.events().instruction_reads.iter().next() {
+            self.prev_pc = self.pc;
+            self.pc = *pc as usize;
+            self.scroll_pc = Some(self.pc);
+        }
     }
 
     fn handle_response(&mut self, res: VMResponse) {
@@ -229,10 +193,10 @@ impl MyApp {
         if let Some(request) = request {
             self.handle_input_request(request);
         }
-        self.next_mpc = mpc;
-        self.cur_mpc = prev_mpc;
-        self.scroll_mpc = Some(self.cur_mpc);
-        self.selected = self.cur_mpc;
+        self.mpc = mpc;
+        self.prev_mpc = prev_mpc;
+        self.scroll_mpc = Some(self.mpc);
+        self.selected = self.mpc;
     }
 
     fn send_input_response(&mut self, inp: VMInputResponse) {
@@ -642,6 +606,149 @@ impl MyApp {
                 });
         });
     }
+
+    fn instruction_table_ui(&mut self, ui: &mut egui::Ui) {
+        if !self.vm.microinstructions().is_empty() {
+            egui::ScrollArea::vertical()
+                .auto_shrink([false; 2])
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if ui
+                            .selectable_label(
+                                self.instruction_table_tab == InstructionTableTab::Micro,
+                                "MAL",
+                            )
+                            .clicked()
+                        {
+                            self.instruction_table_tab = InstructionTableTab::Micro;
+                        }
+                        if ui
+                            .selectable_label(
+                                self.instruction_table_tab == InstructionTableTab::Macro,
+                                "Assembly",
+                            )
+                            .clicked()
+                        {
+                            self.instruction_table_tab = InstructionTableTab::Macro;
+                        }
+                    });
+                    ui.separator();
+                    match self.instruction_table_tab {
+                        InstructionTableTab::Micro => self.mal_table_ui(ui),
+                        InstructionTableTab::Macro => self.asm_table_ui(ui),
+                    }
+                });
+        }
+    }
+
+    fn asm_table_ui(&mut self, ui: &mut egui::Ui) {
+        let text_height = egui::TextStyle::Body
+            .resolve(ui.style())
+            .size
+            .max(ui.spacing().interact_size.y);
+        let available_height = ui.available_height();
+        if !self.vm.instructions().is_empty() {
+            let mut asm_table = TableBuilder::new(ui)
+                .striped(true)
+                .resizable(false)
+                .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                .column(Column::auto())
+                .column(Column::remainder().clip(true))
+                .min_scrolled_height(0.0)
+                .max_scroll_height(available_height);
+            if let Some(pc) = self.scroll_pc.take() {
+                asm_table = asm_table.scroll_to_row(pc, None);
+            }
+            let ins = self.vm.instructions();
+            asm_table.body(|body| {
+                body.rows(text_height, ins.len(), |mut row| {
+                    let row_index = row.index();
+                    row.set_selected(row_index == self.pc);
+                    row.col(|ui| {
+                        if row_index == self.pc {
+                            ui.strong(row_index.to_string());
+                        } else {
+                            ui.label(row_index.to_string());
+                        }
+                    });
+                    row.col(|ui| {
+                        let (text, bin) = ins
+                            .get(row_index)
+                            .map(|i| (i.content.as_str(), i.bin.as_str()))
+                            .unwrap_or(("", ""));
+                        let rich_text = egui::RichText::new(text).monospace();
+                        let hover_add = if row_index == self.pc {
+                            Some("Próxima instrução")
+                        } else if row_index == self.prev_pc {
+                            Some("Instrução executada")
+                        } else {
+                            None
+                        };
+                        if let Some(hover_add) = hover_add {
+                            ui.label(rich_text.strong())
+                                .on_hover_text(format!("{} ({})", bin, hover_add));
+                        } else {
+                            ui.label(rich_text).on_hover_text(bin);
+                        }
+                    });
+                });
+            });
+        }
+    }
+
+    fn mal_table_ui(&mut self, ui: &mut egui::Ui) {
+        let text_height = egui::TextStyle::Body
+            .resolve(ui.style())
+            .size
+            .max(ui.spacing().interact_size.y);
+        let available_height = ui.available_height();
+        if !self.vm.microinstructions().is_empty() {
+            let mut mal_table = TableBuilder::new(ui)
+                .striped(true)
+                .resizable(false)
+                .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                .column(Column::auto())
+                .column(Column::remainder().clip(true))
+                .min_scrolled_height(0.0)
+                .max_scroll_height(available_height)
+                .sense(egui::Sense::click());
+            if let Some(mpc) = self.scroll_mpc.take() {
+                mal_table = mal_table.scroll_to_row(mpc, None);
+            }
+            let mics = self.vm.microinstructions();
+            mal_table.body(|body| {
+                body.rows(text_height, mics.len(), |mut row| {
+                    let row_index = row.index();
+                    row.set_selected(row_index == self.selected);
+                    row.col(|ui| {
+                        if row_index == self.mpc {
+                            ui.strong(row_index.to_string());
+                        } else {
+                            ui.label(row_index.to_string());
+                        }
+                    });
+                    row.col(|ui| {
+                        let text = mics
+                            .get(row_index)
+                            .map(|v| v.content.as_str())
+                            .unwrap_or("");
+                        if row_index == self.mpc {
+                            ui.label(egui::RichText::new(text).monospace().strong())
+                                .on_hover_text("Próxima microinstrução");
+                        } else if row_index == self.prev_mpc {
+                            ui.label(egui::RichText::new(text).monospace().strong())
+                                .on_hover_text("Microinstrução executada");
+                        } else {
+                            ui.monospace(text);
+                        }
+                    });
+                    if row.response().clicked() {
+                        self.selected = row_index;
+                    }
+                });
+            });
+        }
+    }
 }
 
 #[derive(Default, PartialEq, Eq)]
@@ -649,6 +756,13 @@ enum BottomPanelTab {
     #[default]
     MemTable,
     Stdout,
+}
+
+#[derive(Default, PartialEq, Eq)]
+enum InstructionTableTab {
+    #[default]
+    Micro,
+    Macro,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]

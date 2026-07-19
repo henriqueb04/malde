@@ -1,4 +1,4 @@
-use std::{iter::Peekable, str::CharIndices};
+use std::fmt::Display;
 
 use thiserror::Error;
 
@@ -13,12 +13,28 @@ pub enum TokenType {
     Comma,
     String(String),
     Int(isize),
+    Newline,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Token {
     pub token_type: TokenType,
     pub span: Span,
+}
+
+impl Display for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} ({})", match self.token_type {
+            TokenType::Identifier => "identificador".to_string(),
+            TokenType::Directive => "diretiva".to_string(),
+            TokenType::Semicolon => "ponto e vírgula".to_string(),
+            TokenType::Colon => "dois pontos".to_string(),
+            TokenType::Comma => "vírgula".to_string(),
+            TokenType::String(..) => "string".to_string(),
+            TokenType::Int(n) => format!("inteiro {}", n),
+            TokenType::Newline => "quebra de linha".to_string(),
+        }, self.span)
+}
 }
 
 impl HasSpan for Token {
@@ -28,27 +44,27 @@ impl HasSpan for Token {
 }
 
 pub struct Tokenizer<'a> {
-    source_map: SourceMap<'a>,
-    chars: SourceReader<'a>,
+    source_map: SourceMap,
+    reader: SourceReader<'a>,
 }
 
 impl<'a> Tokenizer<'a> {
-    pub fn new(source_map: &SourceMap<'a>) -> Self {
+    pub fn new(source_map: &'a SourceMap) -> Self {
         Tokenizer {
             source_map: source_map.clone(),
-            chars: source_map.reader(),
+            reader: source_map.reader(),
         }
     }
 
     fn read_identifier(&mut self) -> Option<Span> {
-        let start = self.chars.offset();
-        let mut end = self.chars.offset();
-        let line = self.chars.line();
-        let col = self.chars.col();
-        while let Some((_, &c)) = self.chars.peek()
+        let start = self.reader.offset();
+        let mut end = self.reader.offset();
+        let line = self.reader.line();
+        let col = self.reader.col();
+        while let Some((_, &c)) = self.reader.peek()
             && is_identifier_body(&c)
         {
-            self.chars.next();
+            self.reader.next();
             end += c.len_utf8();
         }
         if start != end {
@@ -63,16 +79,16 @@ impl<'a> Tokenizer<'a> {
             None
         }
     }
-    fn read_digits(&mut self) -> Option<Span> {
-        let start = self.chars.offset();
-        let mut end = self.chars.offset();
-        let line = self.chars.line();
-        let col = self.chars.col();
-        while let Some((_, &c)) = self.chars.peek()
-            && (c.is_ascii_digit() || c == '-')
+    fn read_number(&mut self) -> Option<Span> {
+        let start = self.reader.offset();
+        let mut end = self.reader.offset();
+        let line = self.reader.line();
+        let col = self.reader.col();
+        while let Some((len, &c)) = self.reader.peek()
+            && c.is_ascii_alphanumeric()
         {
-            self.chars.next();
-            end += c.len_utf8();
+            self.reader.next();
+            end += len;
         }
         if start != end {
             let span = Span {
@@ -87,8 +103,8 @@ impl<'a> Tokenizer<'a> {
         }
     }
     fn escape_char(&mut self) -> Option<(usize, char)> {
-        let (_, c) = self.chars.next()?;
-        let size = c.len_utf8();
+        let (len, c) = self.reader.next()?;
+        let size = len;
         match c {
             't' => Some('\t'),
             'n' => Some('\n'),
@@ -101,16 +117,16 @@ impl<'a> Tokenizer<'a> {
             '"' => Some('"'),
             _ => None,
         }
-            .map(|c| (size, c))
+        .map(|c| (size, c))
     }
     fn read_string(&mut self) -> Option<(usize, String)> {
         let mut size = '"'.len_utf8();
         let mut content = String::new();
-        while let Some((_, &c)) = self.chars.peek()
+        while let Some((len, &c)) = self.reader.peek()
             && c != '"'
         {
-            self.chars.next();
-            size += c.len_utf8();
+            self.reader.next();
+            size += len;
             if c == '\\' {
                 let escaped = self.escape_char()?;
                 content.push(escaped.1);
@@ -119,8 +135,8 @@ impl<'a> Tokenizer<'a> {
                 content.push(c);
             }
         }
-        let (_, c) = self.chars.next()?;
-        size += c.len_utf8();
+        let (len, _) = self.reader.next()?;
+        size += len;
         Some((size, content))
     }
 }
@@ -129,23 +145,63 @@ impl<'a> Iterator for Tokenizer<'a> {
     type Item = Result<Token, TokenizerError>;
     fn next(&mut self) -> Option<Self::Item> {
         let mut comment = false;
-        while let Some((l, &c)) = self.chars.peek() {
-            let start = self.chars.offset();
-            let line = self.chars.line();
-            let col = self.chars.col();
+        while let Some((len, &c)) = self.reader.peek() {
+            let start = self.reader.offset();
+            let line = self.reader.line();
+            let col = self.reader.col();
             let t: Option<Token> = match c {
                 '#' => {
                     comment = true;
                     None
                 }
+                '\\' => {
+                    self.reader.next();
+                    let start2 = self.reader.offset();
+                    let line2 = self.reader.line();
+                    let col2 = self.reader.col();
+                    if let Some((len2, &c2)) = self.reader.peek() {
+                        if c2 == '\n' {
+                            None
+                        } else {
+                            return Some(Err(TokenizerError {
+                                span: Span {
+                                    start: start2,
+                                    end: start2 + len2,
+                                    line: line2,
+                                    col: col2,
+                                },
+                                error_type: TokenizerErrorType::UnexpectedCharacter,
+                            }));
+                        }
+                    } else {
+                        return Some(Err(TokenizerError {
+                            span: Span {
+                                start,
+                                end: start + len,
+                                line,
+                                col,
+                            },
+                            error_type: TokenizerErrorType::UnexpectedCharacter,
+                        }));
+                    }
+                }
                 '\n' => {
                     comment = false;
-                    None
+                    self.reader.next();
+                    Some(Token {
+                        token_type: TokenType::Newline,
+                        span: Span {
+                            start,
+                            end: self.reader.offset(),
+                            line,
+                            col,
+                        },
+                    })
                 }
                 _ if comment => None,
                 _ if c.is_whitespace() => None,
                 '.' => {
-                    self.chars.next();
+                    self.reader.next();
                     if let Some(span) = self.read_identifier() {
                         Some(Token {
                             token_type: TokenType::Directive,
@@ -161,7 +217,7 @@ impl<'a> Iterator for Tokenizer<'a> {
                             error_type: TokenizerErrorType::InvalidDirective,
                             span: Span {
                                 start,
-                                end: self.chars.offset(),
+                                end: self.reader.offset(),
                                 line,
                                 col,
                             },
@@ -169,27 +225,23 @@ impl<'a> Iterator for Tokenizer<'a> {
                     }
                 }
                 '\'' => {
-                    self.chars.next();
-                    let n = self.chars.next().and_then(|(_, c)| {
+                    self.reader.next();
+                    let n = self.reader.next().and_then(|(_, c)| {
                         if c == '\n' {
                             return None;
                         }
                         let n = if c == '\\' {
-                            let (s, c2) = self.escape_char()?;
+                            let (_, c2) = self.escape_char()?;
                             c2
                         } else {
                             c
                         };
-                        let (_, c) = self.chars.next()?;
-                        if c != '\'' {
-                            None
-                        } else {
-                            Some(n as isize)
-                        }
+                        let (_, c) = self.reader.next()?;
+                        if c != '\'' { None } else { Some(n as isize) }
                     });
                     let span = Span {
                         start,
-                        end: self.chars.offset(),
+                        end: self.reader.offset(),
                         line,
                         col,
                     };
@@ -206,15 +258,15 @@ impl<'a> Iterator for Tokenizer<'a> {
                     }
                 }
                 '"' => {
-                    self.chars.next();
+                    self.reader.next();
                     let s = self.read_string();
                     let span = Span {
                         start,
-                        end: self.chars.offset(),
+                        end: self.reader.offset(),
                         line,
                         col,
                     };
-                    if let Some((size, content)) = s {
+                    if let Some((_, content)) = s {
                         Some(Token {
                             token_type: TokenType::String(content),
                             span,
@@ -227,10 +279,10 @@ impl<'a> Iterator for Tokenizer<'a> {
                     }
                 }
                 ';' => {
-                    self.chars.next();
+                    self.reader.next();
                     let span = Span {
                         start,
-                        end: self.chars.offset(),
+                        end: self.reader.offset(),
                         line,
                         col,
                     };
@@ -240,40 +292,74 @@ impl<'a> Iterator for Tokenizer<'a> {
                     })
                 }
                 ':' => {
-                    self.chars.next();
+                    self.reader.next();
                     Some(Token {
                         token_type: TokenType::Colon,
                         span: Span {
                             start,
-                            end: self.chars.offset(),
+                            end: self.reader.offset(),
                             line,
-                            col
+                            col,
                         },
                     })
                 }
                 ',' => {
-                    self.chars.next();
+                    self.reader.next();
                     Some(Token {
                         token_type: TokenType::Comma,
                         span: Span {
                             start,
-                            end: self.chars.offset(),
+                            end: self.reader.offset(),
                             line,
-                            col
+                            col,
                         },
                     })
                 }
                 '-' | '0'..='9' => {
-                    // TODO: support binary and hex representations
-                    let span = self.read_digits()?;
-                    if let Ok(n) = self.source_map.get_span(&span).parse::<isize>() {
+                    let negative = if c == '-' {
+                        self.reader.next();
+                        true
+                    } else {
+                        false
+                    };
+                    if let Some(mut span) = self.read_number() {
+                        let s = self.source_map.get_span(&span);
+                        let radix = s.get(0..2).and_then(|prefix| match prefix {
+                            "0x" => Some(16),
+                            "0b" => Some(2),
+                            _ => None,
+                        });
+                        if radix.is_some() {
+                            span.start += 2;
+                        }
+                        let s2 = self.source_map.get_span(&span);
+                        let span = Span {
+                            start,
+                            end: span.end,
+                            line,
+                            col,
+                        };
+                        let Ok(n) = (match radix {
+                            Some(base) => isize::from_str_radix(s2, base),
+                            _ => s2.parse::<isize>(),
+                        }) else {
+                            return Some(Err(TokenizerError {
+                                span,
+                                error_type: TokenizerErrorType::InvalidNumber,
+                            }));
+                        };
                         Some(Token {
-                            token_type: TokenType::Int(n),
+                            token_type: TokenType::Int(if negative { -n } else { n }),
                             span,
                         })
                     } else {
                         return Some(Err(TokenizerError {
-                            span,
+                            span: Span {
+                                start,
+                                end: start + len,
+                                line,
+                                col,
+                            },
                             error_type: TokenizerErrorType::InvalidNumber,
                         }));
                     }
@@ -283,13 +369,13 @@ impl<'a> Iterator for Tokenizer<'a> {
                     span,
                 }),
                 _ => {
-                    self.chars.next();
+                    self.reader.next();
                     return Some(Err(TokenizerError {
                         span: Span {
                             start,
-                            end: self.chars.offset(),
+                            end: self.reader.offset(),
                             line,
-                            col
+                            col,
                         },
                         error_type: TokenizerErrorType::UnexpectedCharacter,
                     }));
@@ -298,7 +384,7 @@ impl<'a> Iterator for Tokenizer<'a> {
             if let Some(token) = t {
                 return Some(Ok(token));
             } else {
-                self.chars.next();
+                self.reader.next();
             }
         }
         None
@@ -331,7 +417,7 @@ fn is_identifier_start(c: &char) -> bool {
     c.is_alphabetic()
 }
 fn is_identifier_body(c: &char) -> bool {
-    c.is_alphanumeric()
+    c.is_alphanumeric() || *c == '_'
 }
 
 #[cfg(test)]
@@ -349,25 +435,28 @@ mod tests {
 
     #[test]
     fn test_tokens() {
-        let source_map = SourceMap {
-            filename: "",
-            content: "5 .data
-                TESTE1: .word 1, 2
+        let source_map = SourceMap::from_content("5 .data
+                TESTE1: .word 1, -2\\\n, 0xff, 0b11111111
                 TESTE2: .asciz \"String\n ascii com \\n caracteres de\\tcontrole\"
                 TESTE3: .byte ' ', '\\n'
             .text
-            MAIN: LODD TESTE1; LOCO -1",
-        };
+            MAIN: LODD TESTE1; LOCO -1");
         let mut lexer = Tokenizer::new(&source_map);
         let mut assert_next = lexer_assert(&mut lexer);
         assert_next(TokenType::Int(5), "5");
         assert_next(TokenType::Directive, ".data");
+        assert_next(TokenType::Newline, "\n");
         assert_next(TokenType::Identifier, "TESTE1");
         assert_next(TokenType::Colon, ":");
         assert_next(TokenType::Directive, ".word");
         assert_next(TokenType::Int(1), "1");
         assert_next(TokenType::Comma, ",");
-        assert_next(TokenType::Int(2), "2");
+        assert_next(TokenType::Int(-2), "-2");
+        assert_next(TokenType::Comma, ",");
+        assert_next(TokenType::Int(255), "0xff");
+        assert_next(TokenType::Comma, ",");
+        assert_next(TokenType::Int(255), "0b11111111");
+        assert_next(TokenType::Newline, "\n");
         assert_next(TokenType::Identifier, "TESTE2");
         assert_next(TokenType::Colon, ":");
         assert_next(TokenType::Directive, ".asciz");
@@ -377,13 +466,16 @@ mod tests {
             )),
             "\"String\n ascii com \\n caracteres de\\tcontrole\"",
         );
+        assert_next(TokenType::Newline, "\n");
         assert_next(TokenType::Identifier, "TESTE3");
         assert_next(TokenType::Colon, ":");
         assert_next(TokenType::Directive, ".byte");
         assert_next(TokenType::Int(' ' as isize), "' '");
         assert_next(TokenType::Comma, ",");
         assert_next(TokenType::Int('\n' as isize), "'\\n'");
+        assert_next(TokenType::Newline, "\n");
         assert_next(TokenType::Directive, ".text");
+        assert_next(TokenType::Newline, "\n");
         assert_next(TokenType::Identifier, "MAIN");
         assert_next(TokenType::Colon, ":");
         assert_next(TokenType::Identifier, "LODD");
@@ -394,10 +486,7 @@ mod tests {
     }
 
     fn assert_lexer_err(source_map_content: &'static str, typ: TokenizerErrorType, content: &str) {
-        let source_map = SourceMap {
-            filename: "",
-            content: source_map_content,
-        };
+        let source_map = SourceMap::from_content(source_map_content);
         let err = Tokenizer::new(&source_map)
             .collect::<Result<Vec<Token>, TokenizerError>>()
             .unwrap_err();
@@ -408,7 +497,7 @@ mod tests {
     #[test]
     fn test_errors() {
         assert_lexer_err(". data", TokenizerErrorType::InvalidDirective, ".");
-        assert_lexer_err("-abc", TokenizerErrorType::InvalidNumber, "-");
+        assert_lexer_err("-abc", TokenizerErrorType::InvalidNumber, "-abc");
         assert_lexer_err("*.data", TokenizerErrorType::UnexpectedCharacter, "*");
         assert_lexer_err("\"*.data", TokenizerErrorType::UnendedString, "\"*.data");
         assert_lexer_err("'abcde", TokenizerErrorType::UnendedChar, "'ab");

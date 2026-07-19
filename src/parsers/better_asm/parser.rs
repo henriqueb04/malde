@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::{collections::HashMap, iter::Peekable, mem::discriminant};
 
 use thiserror::Error;
@@ -7,7 +8,7 @@ use crate::parsers::better_asm::tokenizer::{
 };
 use crate::parsers::source_map::{SourceMap, Span};
 
-pub const DEFAULT_KEYWORDS: [(&str, &str); 24] = [
+pub const DEFAULT_KEYWORDS: [(&str, &str); 30] = [
     ("LODD", "0000"),
     ("STOD", "0001"),
     ("ADDD", "0010"),
@@ -29,18 +30,24 @@ pub const DEFAULT_KEYWORDS: [(&str, &str); 24] = [
     ("POP", "1111011000000000"),
     ("RETN", "1111100000000000"),
     ("SWAP", "1111101000000000"),
+    ("SWAPA", "1111111100000000"),
+    ("SWAPB", "1111111100100000"),
+    ("SWAPC", "1111111101000000"),
+    ("SWAPD", "1111111101100000"),
+    ("SWAPE", "1111111110000000"),
+    ("ECALL", "1111111111000000"),
     ("HALT", "0000000000000000"),
     ("INSP", "11111100"),
     ("DESP", "11111110"),
 ];
 
 pub struct ASMParser<'a> {
-    source_map: SourceMap<'a>,
+    source_map: &'a SourceMap,
     keywords: HashMap<String, String>,
     data_offset: usize,
     lexer: Peekable<Tokenizer<'a>>,
-    data: Vec<u16>,
-    ins: Vec<u16>,
+    data_mem: Vec<u16>,
+    ins_mem: Vec<u16>,
     data_mappings: HashMap<&'a str, usize>,
     ins_mappings: HashMap<&'a str, usize>,
     pre_ins: Vec<PreInstruction<'a>>,
@@ -49,24 +56,24 @@ pub struct ASMParser<'a> {
 
 #[derive(Debug, Default)]
 pub struct ParserResult {
-    data_mem: Vec<u16>,
-    ins_mem: Vec<u16>,
-    instructions: Vec<Instruction>,
+    pub data_mem: Vec<u16>,
+    pub ins_mem: Vec<u16>,
+    pub instructions: Vec<Instruction>,
 }
 
 impl<'a> ASMParser<'a> {
     pub fn new(
-        source_map: SourceMap<'a>,
+        source_map: &'a SourceMap,
         keywords: HashMap<String, String>,
         data_offset: usize,
     ) -> Self {
         ASMParser {
-            source_map: source_map.clone(),
+            source_map: source_map,
             keywords,
             data_offset,
             lexer: Tokenizer::new(&source_map).peekable(),
-            data: Vec::new(),
-            ins: Vec::new(),
+            data_mem: Vec::new(),
+            ins_mem: Vec::new(),
             data_mappings: HashMap::new(),
             ins_mappings: HashMap::new(),
             pre_ins: Vec::new(),
@@ -74,26 +81,30 @@ impl<'a> ASMParser<'a> {
         }
     }
 
-    pub fn parse(mut self) -> Result<ParserResult, ParsingError> {
+    pub fn parse(mut self) -> Result<ParserResult, ASMParsingError<'a>> {
+        self.inner_parse()
+            .map(|_| ParserResult {
+                data_mem: self.data_mem,
+                ins_mem: self.ins_mem,
+                instructions: self.ins_list,
+            })
+            .map_err(|err| ASMParsingError {
+                source_map: self.source_map,
+                span: err.span,
+                error_type: err.error_type,
+            })
+    }
+
+    fn inner_parse(&mut self) -> Result<(), ParsingError> {
         while self.lexer.peek().cloned().transpose()?.is_some() {
             self.read_section()?;
         }
         self.process_pre_ins()?;
-        self.assign_ins_list_labels();
-        Ok(ParserResult {
-            data_mem: self.data,
-            ins_mem: self.ins,
-            instructions: self.ins_list,
-        })
+        Ok(())
     }
 
     fn process_pre_ins(&mut self) -> Result<(), ParsingError> {
         for mut p in self.pre_ins.clone().into_iter() {
-            let mut instruction = Instruction {
-                keyword: self.source_map.get_span(&p.keyword_span).to_string(),
-                arg: None,
-                labels: Vec::new()
-            };
             if p.argument != PreInstructionArg::None {
                 let arg_size = 16 - p.keyword_bin.len() as isize;
                 let arg_min: isize = -(1 << (arg_size - 1));
@@ -122,30 +133,35 @@ impl<'a> ASMParser<'a> {
                         },
                     });
                 }
-                instruction.arg = Some(self.source_map.get_span(&span).to_string());
             }
-            self.ins.push(
-                u16::from_str_radix(&p.keyword_bin, 2).map_err(|_| ParsingError {
-                    span: p.keyword_span,
-                    error_type: ParsingErrorType::InvalidInstruction(p.keyword_bin),
-                })?,
-            );
+            let instruction = Instruction {
+                content: self.source_map.get_line(p.keyword_span.line).to_string(),
+                bin: p.keyword_bin.clone(),
+            };
+            self.ins_mem
+                .push(
+                    u16::from_str_radix(&p.keyword_bin, 2).map_err(|_| ParsingError {
+                        span: p.keyword_span,
+                        error_type: ParsingErrorType::InvalidInstruction(p.keyword_bin),
+                    })?,
+                );
             self.ins_list.push(instruction);
         }
         Ok(())
     }
 
-    fn assign_ins_list_labels(&mut self) {
-        for (label,i) in self.ins_mappings.iter() {
-            // Esse if não deve ser necessário, mas só pra ter certeza
-            if let Some(ins) = self.ins_list.get_mut(*i) {
-                ins.labels.push(label.to_string());
-            }
-        }
-    }
-
     fn read_section(&mut self) -> Result<(), ParsingError> {
-        let t = self.expect(TokenType::Directive)?;
+        self.burn_newlines()?;
+        let t = self.expect(TokenType::Directive).map_err(|err| {
+            if let ParsingErrorType::UnexpectedToken(t, ..) = err.error_type {
+                ParsingError {
+                    span: err.span,
+                    error_type: ParsingErrorType::NotASection(t),
+                }
+            } else {
+                err
+            }
+        })?;
         let sec = self.source_map.get_span(&t.span);
         match sec {
             ".data" => self.read_data()?,
@@ -157,20 +173,25 @@ impl<'a> ASMParser<'a> {
                 });
             }
         };
+        self.burn_newlines()?;
         Ok(())
     }
 
     fn read_data(&mut self) -> Result<(), ParsingError> {
+        self.burn_newlines()?;
         let t = self.expect(TokenType::Identifier)?;
         self.expect(TokenType::Colon)?;
+        self.burn_newlines()?;
         let dir = self.expect(TokenType::Directive)?;
-        let data_start = self.data.len();
-        let source = self.source_map.get_span(&dir.span);
-        match source {
+        self.burn_newlines()?;
+        let data_start = self.data_mem.len();
+        let dir_source = self.source_map.get_span(&dir.span);
+        match dir_source {
             ".ascii" => self.data_add_string()?,
             ".asciz" | ".asciiz" => {
+                self.burn_newlines()?;
                 self.data_add_string()?;
-                self.data.push(0);
+                self.data_mem.push(0);
             }
             ".word" => {
                 self.data_add_number(i16::MIN as isize, u16::MAX as isize)?;
@@ -187,15 +208,13 @@ impl<'a> ASMParser<'a> {
                             error_type: ParsingErrorType::NumberTooLow(n, 0),
                         });
                     }
-                    self.data
-                        .resize(self.data.len() + (n as usize).div_ceil(2), 0);
+                    self.data_mem
+                        .resize(self.data_mem.len() + (n as usize).div_ceil(2), 0);
                 }
             }
             _ => {
                 return Err(ParsingError {
-                    error_type: ParsingErrorType::UnsupportedDirective(
-                        self.source_map.get(&dir).to_string(),
-                    ),
+                    error_type: ParsingErrorType::UnsupportedDirective(dir_source.to_string()),
                     span: dir.span,
                 });
             }
@@ -206,6 +225,7 @@ impl<'a> ASMParser<'a> {
                 error_type: err,
             })?;
         self.burn_semicolons()?;
+        self.expect_newline()?;
         if let Some(t) = self.lexer.peek().cloned().transpose()?
             && t.token_type == TokenType::Identifier
         {
@@ -215,6 +235,7 @@ impl<'a> ASMParser<'a> {
     }
 
     fn read_text(&mut self) -> Result<(), ParsingError> {
+        self.burn_newlines()?;
         let t1 = self.expect(TokenType::Identifier)?;
         let c1 = self.source_map.get_span(&t1.span);
         let t2 = self.lexer.peek().cloned().transpose()?;
@@ -257,10 +278,7 @@ impl<'a> ASMParser<'a> {
                     _ => {
                         return Err(ParsingError {
                             span: t2.span.clone(),
-                            error_type: ParsingErrorType::UnexpectedToken(
-                                t2,
-                                TokenType::Identifier,
-                            ),
+                            error_type: ParsingErrorType::NotAnArgument(t2),
                         });
                     }
                 }
@@ -274,6 +292,7 @@ impl<'a> ASMParser<'a> {
             });
         }
         self.burn_semicolons()?;
+        self.expect_newline()?;
         if let Some(t) = self.lexer.peek().cloned().transpose()?
             && t.token_type == TokenType::Identifier
         {
@@ -285,6 +304,25 @@ impl<'a> ASMParser<'a> {
     fn burn_semicolons(&mut self) -> Result<(), ParsingError> {
         while let Some(t) = self.lexer.peek().cloned().transpose()?
             && t.token_type == TokenType::Semicolon
+        {
+            self.lexer.next();
+        }
+        Ok(())
+    }
+    fn burn_newlines(&mut self) -> Result<(), ParsingError> {
+        while let Some(t) = self.lexer.peek().cloned().transpose()?
+            && t.token_type == TokenType::Newline
+        {
+            self.lexer.next();
+        }
+        Ok(())
+    }
+    fn expect_newline(&mut self) -> Result<(), ParsingError> {
+        if self.lexer.peek().is_some() {
+            self.expect(TokenType::Newline)?;
+        }
+        while let Some(t) = self.lexer.peek().cloned().transpose()?
+            && t.token_type == TokenType::Newline
         {
             self.lexer.next();
         }
@@ -315,9 +353,9 @@ impl<'a> ASMParser<'a> {
             .get(label)
             .map(|v| v + self.data_offset)
             .or(self.ins_mappings.get(label).copied())
-            else {
-                return Err(ParsingErrorType::UnrecognizedLabel(label.to_string()));
-            };
+        else {
+            return Err(ParsingErrorType::UnrecognizedLabel(label.to_string()));
+        };
         Ok(n)
     }
     fn data_add_mapping(&mut self, label: &'a str, addr: usize) -> Result<(), ParsingErrorType> {
@@ -348,12 +386,13 @@ impl<'a> ASMParser<'a> {
         let s = self.expect(TokenType::String(String::new()))?;
         if let TokenType::String(seq) = s.token_type {
             for (_, c) in seq.char_indices() {
-                self.data.push(c as u16);
+                self.data_mem.push(c as u16);
             }
         }
         Ok(())
     }
     fn data_add_number(&mut self, min: isize, max: isize) -> Result<(), ParsingError> {
+        self.burn_newlines()?;
         let t = self.expect(TokenType::Int(0))?;
         if let TokenType::Int(n) = t.token_type {
             if n < min {
@@ -367,33 +406,44 @@ impl<'a> ASMParser<'a> {
                     error_type: ParsingErrorType::NumberTooHigh(n, max),
                 });
             } else {
-                self.data.push(n as u16);
+                self.data_mem.push(n as u16);
             }
         }
         if let Some(t) = self.lexer.peek().cloned().transpose()?
             && t.token_type == TokenType::Comma
         {
+            self.burn_newlines()?;
             self.lexer.next();
             self.data_add_number(min, max)?;
         }
         Ok(())
     }
+}
 
-    fn text_add_ins(&mut self, content: String) -> Result<(), ParsingErrorType> {
-        let Ok(n) = u16::from_str_radix(&content, 2) else {
-            return Err(ParsingErrorType::InvalidInstruction(content));
-        };
-        self.ins.push(n);
-        Ok(())
-    }
+#[derive(Debug, PartialEq, Eq)]
+struct ParsingError {
+    pub span: Span,
+    pub error_type: ParsingErrorType,
 }
 
 #[derive(Error, Debug, PartialEq, Eq)]
-#[error("Erro ao ler {span:?}: {error_type}")]
-pub struct ParsingError {
+pub struct ASMParsingError<'a> {
+    pub source_map: &'a SourceMap,
     pub span: Span,
-    #[source]
     pub error_type: ParsingErrorType,
+}
+
+impl Display for ASMParsingError<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Erro ao ler linha {}, coluna {}:\n{}\n\n{}",
+            self.span.line,
+            self.span.col,
+            self.source_map.highlight_in_line(&self.span),
+            self.error_type
+        )
+    }
 }
 
 #[derive(Error, Debug, PartialEq, Eq)]
@@ -420,6 +470,12 @@ pub enum ParsingErrorType {
     InvalidInstruction(String),
     #[error("Rótulo {0} já está em uso")]
     DuplicatedLabel(String),
+    #[error(
+        "Esperava início de seção (.data ou .text), mas foi encontrado {0}. Verifique a formatação..."
+    )]
+    NotASection(Token),
+    #[error("Esperava um inteiro ou rótulo, mas foi encontrado {0}")]
+    NotAnArgument(Token),
 }
 
 impl From<TokenizerError> for ParsingError {
@@ -447,9 +503,8 @@ struct PreInstruction<'a> {
 
 #[derive(Debug, Clone)]
 pub struct Instruction {
-    pub keyword: String,
-    pub arg: Option<String>,
-    pub labels: Vec<String>,
+    pub content: String,
+    pub bin: String,
 }
 
 #[cfg(test)]
@@ -463,12 +518,11 @@ mod tests {
     fn test_data() {
         let def_keys =
             HashMap::from(DEFAULT_KEYWORDS.map(|(a, b)| (String::from(a), String::from(b))));
-        let source_map = SourceMap {
-            filename: "",
-            content: ".data
-                TESTE1: .word 1;
-                TESTE2: .word 1,2
-                TESTE3: .asciz \"St\n \\na\"
+        let source_map = SourceMap::from_content(
+            ".data
+                TESTE1: \n.word 1;
+                TESTE2: .word 1,\n2
+                TESTE3: .asciz\n \"St\n \\na\"
                 TESTE4: .byte 1,2,3,4;;;
                 TESTE5: .byte 'a', '\\n'
             .text
@@ -480,9 +534,23 @@ mod tests {
             MAIN2:
                     JUMP MAIN
 ",
-        };
-        let parser = ASMParser::new(source_map.clone(), def_keys, DATA_SEGMENT_START);
-        let ParserResult { data_mem: data, ins_mem: ins, .. } = parser.parse().unwrap();
+        );
+        let tokens: Result<Vec<(usize, TokenType)>, TokenizerErrorType> =
+            Tokenizer::new(&source_map)
+                .collect::<Result<Vec<Token>, TokenizerError>>()
+                .map(|v| {
+                    v.into_iter()
+                        .map(|t| (t.span.line, t.token_type))
+                        .collect::<Vec<_>>()
+                })
+                .map_err(|err| err.error_type);
+        println!("{:?}", tokens);
+        let parser = ASMParser::new(&source_map, def_keys, DATA_SEGMENT_START);
+        let ParserResult {
+            data_mem: data,
+            ins_mem: ins,
+            ..
+        } = parser.parse().unwrap();
         let expected = [
             1u16,
             1,
@@ -519,16 +587,25 @@ mod tests {
         let mut def_keys =
             HashMap::from(DEFAULT_KEYWORDS.map(|(a, b)| (String::from(a), String::from(b))));
         def_keys.insert("ERRORR".to_string(), "0002".to_string());
-        let sm = SourceMap {
-            filename: "",
-            content,
-        };
-        let parser = ASMParser::new(sm.clone(), def_keys, DATA_SEGMENT_START);
+        let sm = SourceMap::from_content(content);
+        let parser = ASMParser::new(&sm, def_keys, DATA_SEGMENT_START);
         assert_eq!(parser.parse().unwrap_err().error_type, err);
     }
 
     #[test]
     fn test_errors() {
+        assert_err(
+            "5",
+            ParsingErrorType::NotASection(Token {
+                token_type: TokenType::Int(5),
+                span: Span {
+                    start: 0,
+                    end: 1,
+                    line: 1,
+                    col: 1,
+                },
+            }),
+        );
         assert_err(
             ".data\n :",
             ParsingErrorType::UnexpectedToken(
@@ -543,6 +620,30 @@ mod tests {
                 },
                 TokenType::Identifier,
             ),
+        );
+        assert_err(
+            ".data\n TESTE1: .word 1\n,1",
+            ParsingErrorType::NotASection(Token {
+                token_type: TokenType::Comma,
+                span: Span {
+                    start: 23,
+                    end: 24,
+                    line: 3,
+                    col: 1,
+                },
+            }),
+        );
+        assert_err(
+            ".text TESTE1:\n INSP\n 1",
+            ParsingErrorType::NotAnArgument(Token {
+                token_type: TokenType::Newline,
+                span: Span {
+                    start: 19,
+                    end: 20,
+                    line: 2,
+                    col: 6,
+                },
+            }),
         );
         assert_err(
             ".teste",
@@ -578,8 +679,20 @@ mod tests {
             ParsingErrorType::InvalidInstruction("0002000000000001".to_string()),
         );
         assert_err(
-            ".text LABEL1: SWAP LABEL2: SWAP LABEL1: SWAP",
+            ".text LABEL1: SWAP\n LABEL2: SWAP\n LABEL1: SWAP",
             ParsingErrorType::DuplicatedLabel("LABEL1".to_string()),
-        )
+        );
+        assert_err(
+            ".text MAIN: LODD .byte",
+            ParsingErrorType::NotAnArgument(Token {
+                token_type: TokenType::Directive,
+                span: Span {
+                    start: 17,
+                    end: 22,
+                    line: 1,
+                    col: 18,
+                },
+            }),
+        );
     }
 }

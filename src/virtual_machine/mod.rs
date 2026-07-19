@@ -16,8 +16,12 @@ use crate::{
         memory::{Memory, MemoryArray},
     },
     parsers::{
-        mac::{ASMParser, DEFAULT_KEYWORDS, ParsingError as ASMParsingError},
+        better_asm::{
+            ASMParser, ASMParsingError, DEFAULT_KEYWORDS, Instruction,
+            ParserResult as ASMParsingResult,
+        },
         mal::{MALParser, Microinstruction, ParsingError as MALParsingError},
+        source_map::SourceMap,
     },
 };
 
@@ -32,6 +36,7 @@ pub struct VM {
     memory: Rc<RefCell<Memory>>,
     micro_mem: Rc<RefCell<MicroMem>>,
     cpu: Cpu,
+    instructions: Vec<Instruction>,
     microinstructions: Vec<Microinstruction>,
     events: EventHandler,
     stdout: String,
@@ -58,6 +63,7 @@ impl VM {
             state: VMState::Uninitialized,
             execution_type: None,
             microinstructions: Vec::new(),
+            instructions: Vec::new(),
             initial_memory: None,
             events: EventHandler::default(),
             stdout: String::new(),
@@ -80,16 +86,36 @@ impl VM {
                 .map(|m| m.mir.clone().into())
                 .collect(),
         ));
+        self.reset();
         self.state = VMState::Active;
         self.microinstructions = microinstructions;
         Ok(())
     }
 
-    pub fn assemble_mac<'a>(&mut self, source: &'a str) -> Result<(), ASMParsingError<'a>> {
-        let mut parser = ASMParser::new(&self.keywords);
-        let mem = parser.parse_text(source)?;
-        self.set_initial_memory(mem.0, mem.1);
-        self.reset_memory();
+    pub fn assemble_mac<'a, 'b>(
+        &mut self,
+        source_map: &'b SourceMap,
+    ) -> Result<(), ASMParsingError<'b>>
+    where
+        'b: 'a,
+    {
+        let parser = ASMParser::new(
+            source_map,
+            self.keywords
+                .clone()
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect::<HashMap<String, String>>(),
+            DATA_SEGMENT_START,
+        );
+        let ASMParsingResult {
+            data_mem,
+            ins_mem,
+            instructions,
+        } = parser.parse()?;
+        self.reset();
+        self.set_initial_memory(ins_mem, data_mem);
+        self.instructions = instructions;
         Ok(())
     }
 
@@ -141,6 +167,9 @@ impl VM {
 
     pub fn microinstructions(&self) -> &Vec<Microinstruction> {
         &self.microinstructions
+    }
+    pub fn instructions(&self) -> &Vec<Instruction> {
+        &self.instructions
     }
 
     pub fn is_ready(&self) -> bool {
@@ -224,11 +253,15 @@ impl VM {
     }
 
     pub fn reset(&mut self) {
-        self.events.clear();
-        self.state = VMState::Active;
-        self.reset_memory();
-        self.cpu.reset();
-        self.print_to_stdout("\n\n----- programa reiniciado -----\n\n");
+        if self.state != VMState::Uninitialized {
+            self.events.clear();
+            if self.state == VMState::Halted {
+                self.state = VMState::Active;
+            }
+            self.reset_memory();
+            self.cpu.reset();
+            self.print_to_stdout("\n\n----- programa reiniciado -----\n\n");
+        }
     }
     pub fn registers(&self) -> (u16, u16, &RegisterBank) {
         self.cpu.get_registers()
