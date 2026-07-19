@@ -16,7 +16,7 @@ use crate::{
         memory::{Memory, MemoryArray},
     },
     parsers::{
-        better_asm::{
+        asm::{
             ASMParser, ASMParsingError, DEFAULT_KEYWORDS, Instruction,
             ParserResult as ASMParsingResult,
         },
@@ -92,13 +92,10 @@ impl VM {
         Ok(())
     }
 
-    pub fn assemble_mac<'a, 'b>(
+    pub fn assemble_mac<'a>(
         &mut self,
-        source_map: &'b SourceMap,
-    ) -> Result<(), ASMParsingError<'b>>
-    where
-        'b: 'a,
-    {
+        source_map: &'a SourceMap,
+    ) -> Result<(), ASMParsingError<'a>> {
         let parser = ASMParser::new(
             source_map,
             self.keywords
@@ -113,9 +110,9 @@ impl VM {
             ins_mem,
             instructions,
         } = parser.parse()?;
-        self.reset();
         self.set_initial_memory(ins_mem, data_mem);
         self.instructions = instructions;
+        self.reset();
         Ok(())
     }
 

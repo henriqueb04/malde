@@ -3,7 +3,7 @@ use std::{collections::HashMap, iter::Peekable, mem::discriminant};
 
 use thiserror::Error;
 
-use crate::parsers::better_asm::tokenizer::{
+use crate::parsers::asm::tokenizer::{
     Token, TokenType, Tokenizer, TokenizerError, TokenizerErrorType,
 };
 use crate::parsers::source_map::{SourceMap, Span};

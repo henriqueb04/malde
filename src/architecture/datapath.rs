@@ -134,6 +134,7 @@ impl Datapath {
 }
 
 pub struct Registers;
+#[allow(unused)]
 impl Registers {
     pub const PC: usize = 0;
     pub const AC: usize = 1;

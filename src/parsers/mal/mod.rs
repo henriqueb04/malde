@@ -114,7 +114,6 @@ impl MALParser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::read_to_string;
 
     #[test]
     fn test_line_parse() {
@@ -197,30 +196,5 @@ mod tests {
         assert_eq!(mir.get_addr_symbol(), Some("10"));
 
         assert!(parse_line("# teste: pc := pc + 1;").is_none());
-    }
-
-    // #[test]
-    fn test_code_equivalence() {
-        let mp = MALParser::new();
-        let ml1: Vec<u64> = mp
-            .parse_instructions(&read_to_string("/home/henrique/code/mac1/teste.mal").unwrap())
-            .expect("")
-            .into_iter()
-            .map(|m| u64::from(m.mir))
-            .collect();
-        let ml2: Vec<u64> = mp
-            .parse_instructions(&read_to_string("/home/henrique/code/mac1/malde.mal").unwrap())
-            .expect("")
-            .into_iter()
-            .map(|m| u64::from(m.mir))
-            .collect();
-        for i in 0..ml1.len() {
-            if ml1[i] != ml2[i] {
-                println!("{}", i);
-                println!("Expected: {:064b}", ml1[i]);
-                println!("Got     : {:064b}", ml2[i]);
-            }
-        }
-        assert_eq!(ml1, ml2);
     }
 }
