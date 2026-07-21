@@ -2,7 +2,6 @@ use thiserror::Error;
 
 use std::{
     cell::{Ref, RefCell},
-    collections::HashMap,
     mem::discriminant,
     rc::Rc,
 };
@@ -17,8 +16,7 @@ use crate::{
     },
     parsers::{
         asm::{
-            ASMParser, ASMParsingError, DEFAULT_KEYWORDS, Instruction,
-            ParserResult as ASMParsingResult,
+            ASMParser, ASMParsingError, Instruction, KeywordMap, ParserResult as ASMParsingResult,
         },
         mal::{MALParser, Microinstruction, ParsingError as MALParsingError},
         source_map::SourceMap,
@@ -29,7 +27,7 @@ pub use crate::architecture::memory::{DATA_SEGMENT_START, TEXT_SEGMENT_START};
 pub use crate::architecture::{datapath::Registers, memory::MEMORY_SIZE};
 
 pub struct VM {
-    keywords: HashMap<String, String>,
+    keywords: KeywordMap,
     state: VMState,
     execution_type: Option<VMExecutionType>,
     initial_memory: Option<(Vec<u16>, Vec<u16>)>,
@@ -54,9 +52,7 @@ impl VM {
         let memory = Rc::new(RefCell::new(Memory::new()));
         let micro_mem = Rc::new(RefCell::new(MicroMem::new(Vec::new())));
         VM {
-            keywords: HashMap::from(
-                DEFAULT_KEYWORDS.map(|(k, v)| (String::from(k), String::from(v))),
-            ),
+            keywords: KeywordMap::default(),
             memory: Rc::clone(&memory),
             micro_mem: Rc::clone(&micro_mem),
             cpu: Cpu::new(Rc::clone(&memory), Rc::clone(&micro_mem)),
@@ -96,15 +92,7 @@ impl VM {
         &mut self,
         source_map: &'a SourceMap,
     ) -> Result<(), ASMParsingError<'a>> {
-        let parser = ASMParser::new(
-            source_map,
-            self.keywords
-                .clone()
-                .into_iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect::<HashMap<String, String>>(),
-            DATA_SEGMENT_START,
-        );
+        let parser = ASMParser::new(source_map, self.keywords.clone(), DATA_SEGMENT_START);
         let ASMParsingResult {
             data_mem,
             ins_mem,
@@ -250,13 +238,13 @@ impl VM {
     }
 
     pub fn reset(&mut self) {
+        self.events.clear();
+        self.reset_memory();
+        self.cpu.reset();
         if self.state != VMState::Uninitialized {
-            self.events.clear();
             if self.state == VMState::Halted {
                 self.state = VMState::Active;
             }
-            self.reset_memory();
-            self.cpu.reset();
             self.print_to_stdout("\n\n----- programa reiniciado -----\n\n");
         }
     }

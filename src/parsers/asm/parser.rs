@@ -8,42 +8,42 @@ use crate::parsers::asm::tokenizer::{
 };
 use crate::parsers::source_map::{SourceMap, Span};
 
-pub const DEFAULT_KEYWORDS: [(&str, &str); 30] = [
-    ("LODD", "0000"),
-    ("STOD", "0001"),
-    ("ADDD", "0010"),
-    ("SUBD", "0011"),
-    ("JPOS", "0100"),
-    ("JZER", "0101"),
-    ("JUMP", "0110"),
-    ("LOCO", "0111"),
-    ("LODL", "1000"),
-    ("STOL", "1001"),
-    ("ADDL", "1010"),
-    ("SUBL", "1011"),
-    ("JNEG", "1100"),
-    ("JNZE", "1101"),
-    ("CALL", "1110"),
-    ("PSHI", "1111000000000000"),
-    ("POPI", "1111001000000000"),
-    ("PUSH", "1111010000000000"),
-    ("POP", "1111011000000000"),
-    ("RETN", "1111100000000000"),
-    ("SWAP", "1111101000000000"),
-    ("SWAPA", "1111111100000000"),
-    ("SWAPB", "1111111100100000"),
-    ("SWAPC", "1111111101000000"),
-    ("SWAPD", "1111111101100000"),
-    ("SWAPE", "1111111110000000"),
-    ("ECALL", "1111111111000000"),
-    ("HALT", "0000000000000000"),
-    ("INSP", "11111100"),
-    ("DESP", "11111110"),
+pub const DEFAULT_KEYWORDS: [(&str, (usize, usize)); 30] = [
+    ("LODD", (0b0000, 12)),
+    ("STOD", (0b0001, 12)),
+    ("ADDD", (0b0010, 12)),
+    ("SUBD", (0b0011, 12)),
+    ("JPOS", (0b0100, 12)),
+    ("JZER", (0b0101, 12)),
+    ("JUMP", (0b0110, 12)),
+    ("LOCO", (0b0111, 12)),
+    ("LODL", (0b1000, 12)),
+    ("STOL", (0b1001, 12)),
+    ("ADDL", (0b1010, 12)),
+    ("SUBL", (0b1011, 12)),
+    ("JNEG", (0b1100, 12)),
+    ("JNZE", (0b1101, 12)),
+    ("CALL", (0b1110, 12)),
+    ("PSHI", (0b1111000000000000, 0)),
+    ("POPI", (0b1111001000000000, 0)),
+    ("PUSH", (0b1111010000000000, 0)),
+    ("POP", (0b1111011000000000, 0)),
+    ("RETN", (0b1111100000000000, 0)),
+    ("SWAP", (0b1111101000000000, 0)),
+    ("SWAPA", (0b1111111100000000, 0)),
+    ("SWAPB", (0b1111111100100000, 0)),
+    ("SWAPC", (0b1111111101000000, 0)),
+    ("SWAPD", (0b1111111101100000, 0)),
+    ("SWAPE", (0b1111111110000000, 0)),
+    ("ECALL", (0b1111111111000000, 0)),
+    ("HALT", (0b0000000000000000, 0)),
+    ("INSP", (0b11111100, 8)),
+    ("DESP", (0b11111110, 8)),
 ];
 
 pub struct ASMParser<'a> {
     source_map: &'a SourceMap,
-    keywords: HashMap<String, String>,
+    keywords: KeywordMap,
     data_offset: usize,
     lexer: Peekable<Tokenizer<'a>>,
     data_mem: Vec<u16>,
@@ -54,21 +54,10 @@ pub struct ASMParser<'a> {
     ins_list: Vec<Instruction>,
 }
 
-#[derive(Debug, Default)]
-pub struct ParserResult {
-    pub data_mem: Vec<u16>,
-    pub ins_mem: Vec<u16>,
-    pub instructions: Vec<Instruction>,
-}
-
 impl<'a> ASMParser<'a> {
-    pub fn new(
-        source_map: &'a SourceMap,
-        keywords: HashMap<String, String>,
-        data_offset: usize,
-    ) -> Self {
+    pub fn new(source_map: &'a SourceMap, keywords: KeywordMap, data_offset: usize) -> Self {
         ASMParser {
-            source_map: source_map,
+            source_map,
             keywords,
             data_offset,
             lexer: Tokenizer::new(&source_map).peekable(),
@@ -96,7 +85,7 @@ impl<'a> ASMParser<'a> {
     }
 
     fn inner_parse(&mut self) -> Result<(), ParsingError> {
-        while self.lexer.peek().cloned().transpose()?.is_some() {
+        while self.peek_kind()?.is_some() {
             self.read_section()?;
         }
         self.process_pre_ins()?;
@@ -104,28 +93,28 @@ impl<'a> ASMParser<'a> {
     }
 
     fn process_pre_ins(&mut self) -> Result<(), ParsingError> {
-        for mut p in self.pre_ins.clone().into_iter() {
-            if p.argument != PreInstructionArg::None {
-                let arg_size = 16 - p.keyword_bin.len() as isize;
+        for p in &mut self.pre_ins.iter() {
+            let v = if let Some(argument) = p.argument.as_ref() {
+                let arg_size = argument.0;
+                let span = &argument.1;
                 let arg_min: isize = -(1 << (arg_size - 1));
                 let arg_max: isize = (1 << arg_size) - 1;
-                let (span, n): (Span, isize) = match p.argument {
-                    PreInstructionArg::Label(span, s) => {
+                let n: isize = match argument.2 {
+                    PreInstructionArg::Label(s) => {
                         let n = self.get_mapping(s).map_err(|err| ParsingError {
                             span: span.clone(),
                             error_type: err,
                         })? as isize;
-                        (span, n)
+                        n
                     }
-                    PreInstructionArg::Int(span, n) => (span, n),
-                    _ => Default::default(),
+                    PreInstructionArg::Int(n) => n,
                 };
                 if (arg_min..=arg_max).contains(&n) {
-                    p.keyword_bin
-                        .push_str(&(format!("{:016b}", n))[(16 - arg_size as usize)..16])
+                    let mask = (1 << arg_size) - 1;
+                    (p.keyword_val << arg_size) | (n as usize & mask)
                 } else {
                     return Err(ParsingError {
-                        span,
+                        span: span.clone(),
                         error_type: if n < arg_min {
                             ParsingErrorType::NumberTooLow(n, arg_min)
                         } else {
@@ -133,18 +122,14 @@ impl<'a> ASMParser<'a> {
                         },
                     });
                 }
-            }
+            } else {
+                p.keyword_val
+            };
             let instruction = Instruction {
                 content: self.source_map.get_line(p.keyword_span.line).to_string(),
-                bin: p.keyword_bin.clone(),
+                bin: format!("{:016b}", v),
             };
-            self.ins_mem
-                .push(
-                    u16::from_str_radix(&p.keyword_bin, 2).map_err(|_| ParsingError {
-                        span: p.keyword_span,
-                        error_type: ParsingErrorType::InvalidInstruction(p.keyword_bin),
-                    })?,
-                );
+            self.ins_mem.push(v as u16);
             self.ins_list.push(instruction);
         }
         Ok(())
@@ -226,8 +211,8 @@ impl<'a> ASMParser<'a> {
             })?;
         self.burn_semicolons()?;
         self.expect_newline()?;
-        if let Some(t) = self.lexer.peek().cloned().transpose()?
-            && t.token_type == TokenType::Identifier
+        if let Some(t) = self.peek_kind()?
+            && *t == TokenType::Identifier
         {
             self.read_data()?;
         }
@@ -238,9 +223,9 @@ impl<'a> ASMParser<'a> {
         self.burn_newlines()?;
         let t1 = self.expect(TokenType::Identifier)?;
         let c1 = self.source_map.get_span(&t1.span);
-        let t2 = self.lexer.peek().cloned().transpose()?;
+        let t2 = self.peek_kind()?;
         if let Some(t2) = t2
-            && t2.token_type == TokenType::Colon
+            && *t2 == TokenType::Colon
         {
             // LABEL:
             self.text_add_mapping(self.source_map.get(&t1), self.pre_ins.len())
@@ -250,30 +235,31 @@ impl<'a> ASMParser<'a> {
                 })?;
             self.lexer.next();
             self.read_text()?;
-        } else if let Some(keyword_bin) = self.keywords.get(c1).cloned() {
-            if keyword_bin.len() == 16 {
+        } else if let Some((keyword_val, arg_size)) = self.keywords.get(c1).cloned() {
+            if arg_size == 0 {
                 // 16 bit instruction
                 self.pre_ins.push(PreInstruction {
                     keyword_span: t1.span.clone(),
-                    keyword_bin,
-                    argument: PreInstructionArg::None,
+                    keyword_val,
+                    argument: None,
                 });
             } else {
                 let t2 = self.next()?;
                 match t2.token_type {
                     TokenType::Identifier => self.pre_ins.push(PreInstruction {
                         keyword_span: t1.span.clone(),
-                        keyword_bin,
-                        argument: PreInstructionArg::Label(
+                        keyword_val,
+                        argument: Some((
+                            arg_size,
                             t2.span.clone(),
-                            self.source_map.get(&t2),
-                        ),
+                            PreInstructionArg::Label(self.source_map.get(&t2)),
+                        )),
                     }),
 
                     TokenType::Int(n) => self.pre_ins.push(PreInstruction {
                         keyword_span: t1.span.clone(),
-                        keyword_bin,
-                        argument: PreInstructionArg::Int(t2.span.clone(), n),
+                        keyword_val,
+                        argument: Some((arg_size, t2.span.clone(), PreInstructionArg::Int(n))),
                     }),
                     _ => {
                         return Err(ParsingError {
@@ -293,40 +279,27 @@ impl<'a> ASMParser<'a> {
         }
         self.burn_semicolons()?;
         self.expect_newline()?;
-        if let Some(t) = self.lexer.peek().cloned().transpose()?
-            && t.token_type == TokenType::Identifier
+        if let Some(t) = self.peek_kind()?
+            && *t == TokenType::Identifier
         {
             self.read_text()?;
         }
         Ok(())
     }
 
-    fn burn_semicolons(&mut self) -> Result<(), ParsingError> {
-        while let Some(t) = self.lexer.peek().cloned().transpose()?
-            && t.token_type == TokenType::Semicolon
+    fn burn_tokens(&mut self, typ: TokenType) -> Result<(), ParsingError> {
+        while let Some(t) = self.peek_kind()?
+            && *t == typ
         {
             self.lexer.next();
         }
         Ok(())
+    }
+    fn burn_semicolons(&mut self) -> Result<(), ParsingError> {
+        self.burn_tokens(TokenType::Semicolon)
     }
     fn burn_newlines(&mut self) -> Result<(), ParsingError> {
-        while let Some(t) = self.lexer.peek().cloned().transpose()?
-            && t.token_type == TokenType::Newline
-        {
-            self.lexer.next();
-        }
-        Ok(())
-    }
-    fn expect_newline(&mut self) -> Result<(), ParsingError> {
-        if self.lexer.peek().is_some() {
-            self.expect(TokenType::Newline)?;
-        }
-        while let Some(t) = self.lexer.peek().cloned().transpose()?
-            && t.token_type == TokenType::Newline
-        {
-            self.lexer.next();
-        }
-        Ok(())
+        self.burn_tokens(TokenType::Newline)
     }
 
     fn next(&mut self) -> Result<Token, ParsingError> {
@@ -335,6 +308,17 @@ impl<'a> ASMParser<'a> {
             error_type: ParsingErrorType::UnexpectedEnd,
         })??;
         Ok(t)
+    }
+    fn peek_kind(&mut self) -> Result<Option<&TokenType>, ParsingError> {
+        if let Some(r) = self.lexer.peek() {
+            Ok(Some(
+                r.as_ref()
+                    .map(|t| &t.token_type)
+                    .map_err(|err| err.clone())?,
+            ))
+        } else {
+            Ok(None)
+        }
     }
     fn expect(&mut self, typ: TokenType) -> Result<Token, ParsingError> {
         let t = self.next()?;
@@ -345,6 +329,28 @@ impl<'a> ASMParser<'a> {
             });
         }
         Ok(t)
+    }
+    fn expect_string(&mut self) -> Result<Token, ParsingError> {
+        let t = self.next()?;
+        if matches!(t.token_type, TokenType::String(..)) {
+            Ok(t)
+        } else {
+            return Err(ParsingError {
+                span: t.span.clone(),
+                error_type: ParsingErrorType::UnexpectedToken(t, TokenType::String(String::new())),
+            });
+        }
+    }
+    fn expect_newline(&mut self) -> Result<(), ParsingError> {
+        if self.lexer.peek().is_some() {
+            self.expect(TokenType::Newline)?;
+        }
+        while let Some(t) = self.peek_kind()?
+            && (*t == TokenType::Newline || *t == TokenType::Semicolon)
+        {
+            self.lexer.next();
+        }
+        Ok(())
     }
 
     fn get_mapping(&self, label: &'a str) -> Result<usize, ParsingErrorType> {
@@ -383,7 +389,7 @@ impl<'a> ASMParser<'a> {
         Ok(())
     }
     fn data_add_string(&mut self) -> Result<(), ParsingError> {
-        let s = self.expect(TokenType::String(String::new()))?;
+        let s = self.expect_string()?;
         if let TokenType::String(seq) = s.token_type {
             for (_, c) in seq.char_indices() {
                 self.data_mem.push(c as u16);
@@ -409,8 +415,8 @@ impl<'a> ASMParser<'a> {
                 self.data_mem.push(n as u16);
             }
         }
-        if let Some(t) = self.lexer.peek().cloned().transpose()?
-            && t.token_type == TokenType::Comma
+        if let Some(t) = self.peek_kind()?
+            && *t == TokenType::Comma
         {
             self.burn_newlines()?;
             self.lexer.next();
@@ -446,6 +452,91 @@ impl Display for ASMParsingError<'_> {
     }
 }
 
+#[derive(Clone)]
+pub struct KeywordMap {
+    map: HashMap<String, (usize, usize)>,
+}
+
+impl Default for KeywordMap {
+    fn default() -> Self {
+        let map = DEFAULT_KEYWORDS
+            .map(|(name, spec)| (name.to_string(), spec))
+            .into_iter()
+            .collect::<HashMap<String, (usize, usize)>>();
+        KeywordMap { map }
+    }
+}
+
+impl TryFrom<Vec<(String, String)>> for KeywordMap {
+    type Error = (usize, KeywordMapError);
+    fn try_from(value: Vec<(String, String)>) -> Result<Self, Self::Error> {
+        let map: HashMap<String, (usize, usize)> = value
+            .into_iter()
+            .enumerate()
+            .map(|(i, (name, op))| {
+                if name.is_empty() {
+                    return Err((i, KeywordMapError::EmptyName));
+                } else if op.is_empty() {
+                    return Err((i, KeywordMapError::EmptyOpCode));
+                } else if !op.chars().all(|c| c == '0' || c == '1') {
+                    return Err((i, KeywordMapError::InvalidOpCode));
+                } else if op.trim().len() > 16 {
+                    return Err((i, KeywordMapError::OpCodeTooBig));
+                } else {
+                    match u16::from_str_radix(op.as_str(), 2) {
+                        Ok(n) => Ok((name, (n as usize, 16 - n as usize))),
+                        Err(..) => Err((i, KeywordMapError::InvalidOpCode)),
+                    }
+                }
+            })
+            .collect::<Result<HashMap<String, (usize, usize)>, Self::Error>>()?;
+        Ok(KeywordMap { map })
+    }
+}
+
+impl<'a> TryFrom<Vec<(&'a str, &'a str)>> for KeywordMap {
+    type Error = (usize, KeywordMapError);
+    fn try_from(value: Vec<(&'a str, &'a str)>) -> Result<Self, Self::Error> {
+        let v = value
+            .into_iter()
+            .map(|(name, op)| (name.to_string(), op.to_string()))
+            .collect::<Vec<(String, String)>>();
+        KeywordMap::try_from(v)
+    }
+}
+
+impl KeywordMap {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn get(&self, key: &str) -> Option<&(usize, usize)> {
+        self.map.get(key)
+    }
+    pub fn insert(&mut self, key: String, value: (usize, usize)) {
+        self.map.insert(key, value);
+    }
+    pub fn to_string_map(&self) -> HashMap<String, String> {
+        self.map.clone().into_iter().map(|(name, (op, _))| {
+            let op_str = format!("{:b}", op);
+            (name, op_str)
+        }).collect()
+    }
+}
+
+pub enum KeywordMapError {
+    EmptyName,
+    EmptyOpCode,
+    OpCodeTooBig,
+    InvalidOpCode,
+}
+
+#[derive(Debug, Default)]
+pub struct ParserResult {
+    pub data_mem: Vec<u16>,
+    pub ins_mem: Vec<u16>,
+    pub instructions: Vec<Instruction>,
+}
+
 #[derive(Error, Debug, PartialEq, Eq)]
 pub enum ParsingErrorType {
     #[error(transparent)]
@@ -456,7 +547,7 @@ pub enum ParsingErrorType {
     UnrecognizedSession(String),
     #[error("Keyword \"{0}\" não reconhecida")]
     UnrecognizedKeyword(String),
-    #[error("Rótudo \"{0}\" não reconhecido")]
+    #[error("Rótulo \"{0}\" não reconhecido")]
     UnrecognizedLabel(String),
     #[error("Fim inesperado do conteúdo")]
     UnexpectedEnd,
@@ -489,16 +580,15 @@ impl From<TokenizerError> for ParsingError {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PreInstructionArg<'a> {
-    Label(Span, &'a str),
-    Int(Span, isize),
-    None,
+    Label(&'a str),
+    Int(isize),
 }
 
 #[derive(Debug, Clone)]
 struct PreInstruction<'a> {
     keyword_span: Span,
-    keyword_bin: String,
-    argument: PreInstructionArg<'a>,
+    keyword_val: usize,
+    argument: Option<(usize, Span, PreInstructionArg<'a>)>,
 }
 
 #[derive(Debug, Clone)]
@@ -516,12 +606,12 @@ mod tests {
 
     #[test]
     fn test_data() {
-        let def_keys =
-            HashMap::from(DEFAULT_KEYWORDS.map(|(a, b)| (String::from(a), String::from(b))));
+        let def_keys = KeywordMap::default();
         let source_map = SourceMap::from_content(
             ".data
                 TESTE1: \n.word 1;
                 TESTE2: .word 1,\n2
+                ;;;
                 TESTE3: .asciz\n \"St\n \\na\"
                 TESTE4: .byte 1,2,3,4;;;
                 TESTE5: .byte 'a', '\\n'
@@ -570,23 +660,22 @@ mod tests {
             '\n' as u16,
         ];
         assert_eq!(data, expected);
-        assert_eq!(
-            ins,
-            [
+            let expected = [
                 0b0111000000000101,
                 0b1010111111111111,
                 0b1111101000000000,
                 0b0000000000000011 + DATA_SEGMENT_START as u16,
                 0b1111110011111111,
                 0b0110000000000001
-            ]
+            ];
+        assert_eq!(
+            ins,
+            expected
         );
     }
 
     fn assert_err(content: &str, err: ParsingErrorType) {
-        let mut def_keys =
-            HashMap::from(DEFAULT_KEYWORDS.map(|(a, b)| (String::from(a), String::from(b))));
-        def_keys.insert("ERRORR".to_string(), "0002".to_string());
+        let def_keys = KeywordMap::default();
         let sm = SourceMap::from_content(content);
         let parser = ASMParser::new(&sm, def_keys, DATA_SEGMENT_START);
         assert_eq!(parser.parse().unwrap_err().error_type, err);
@@ -673,10 +762,6 @@ mod tests {
         assert_err(
             ".data VAR: .half 55",
             ParsingErrorType::UnsupportedDirective(".half".to_string()),
-        );
-        assert_err(
-            ".text ERRORR 1",
-            ParsingErrorType::InvalidInstruction("0002000000000001".to_string()),
         );
         assert_err(
             ".text LABEL1: SWAP\n LABEL2: SWAP\n LABEL1: SWAP",

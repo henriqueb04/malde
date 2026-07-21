@@ -1,4 +1,7 @@
 mod parser;
 mod tokenizer;
 
-pub use parser::{ASMParser, DEFAULT_KEYWORDS, Instruction, ParserResult, ASMParsingError};
+pub use parser::{
+    ASMParser, ASMParsingError, DEFAULT_KEYWORDS, Instruction, KeywordMap, KeywordMapError,
+    ParserResult,
+};
