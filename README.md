@@ -2,7 +2,7 @@
 Malde é um simulador da Micro Assembly Language da arquitetura MIC1 Andrew Tanenbaum, com parsers para a linguagem MAL e assembly MAC1.
 
 - **Microprograma** (_MAL_): carregado na micro-memória da unidade de controle
-- **Macroprograma** (_ASM_): carregado na meméria principal
+- **Macroprograma** (_ASM_): carregado na memória principal
 
 ## Instalação
 Pré-requisitos: `libGL`, `libxkbcommon`, `wayland`, `zenity`
@@ -26,10 +26,10 @@ cargo install
 ```
 
 ## Aviso
-Esse projeto ainda é apenas um protótipo. Embora tenha funcionalidade básica, ainda não é estável e faltam funções essenciais.
+Este projeto encontra-se em um estado usável. Embora, alguns recursos não tenham sido totalmente implementados, o projeto está estável e funcional.
 
 ## Exemplo
-Esse exemplo percorre uma string, carregando todos os seus caracteres até chegar ao nulo:
+Este exemplo percorre uma string, carregando todos os seus caracteres até chegar ao nulo:
 
 ```asm
 .data
