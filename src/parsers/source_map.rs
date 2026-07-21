@@ -59,8 +59,14 @@ impl SourceMap {
         }
         let mut line = self.content[line_start..line_end].to_string();
         line.push('\n');
-        line.push_str(" ".repeat((&self.content[line_start..span.start]).len()).as_str());
-        line.push_str("~".repeat((&self.content[span.start..span.end]).len()).as_str());
+        line.push_str(
+            " ".repeat((&self.content[line_start..span.start]).len())
+                .as_str(),
+        );
+        line.push_str(
+            "~".repeat((&self.content[span.start..span.end]).len())
+                .as_str(),
+        );
         line
     }
     pub fn reader(&self) -> SourceReader<'_> {

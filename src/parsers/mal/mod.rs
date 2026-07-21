@@ -155,8 +155,8 @@ mod tests {
 
         assert!(
             parse_line("0: pc := 1 + pc; mar := amask; rd;")
-            .unwrap()
-            .is_err()
+                .unwrap()
+                .is_err()
         );
 
         let (name, mir) = parse_line("balangodango1: tir := lshift(ir + ir); if n then goto 19;")

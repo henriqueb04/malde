@@ -516,10 +516,14 @@ impl KeywordMap {
         self.map.insert(key, value);
     }
     pub fn to_string_map(&self) -> HashMap<String, String> {
-        self.map.clone().into_iter().map(|(name, (op, _))| {
-            let op_str = format!("{:b}", op);
-            (name, op_str)
-        }).collect()
+        self.map
+            .clone()
+            .into_iter()
+            .map(|(name, (op, _))| {
+                let op_str = format!("{:b}", op);
+                (name, op_str)
+            })
+            .collect()
     }
 }
 
@@ -541,7 +545,7 @@ pub struct ParserResult {
 pub enum ParsingErrorType {
     #[error(transparent)]
     TokenError(TokenizerErrorType),
-    #[error("Esperava {1:?}, mas foi encontrado {0:?}")]
+    #[error("Esperava {1}, mas foi encontrado {0}")]
     UnexpectedToken(Token, TokenType),
     #[error("Sessão {0} não reconhecida. Tente começar com .data ou .text")]
     UnrecognizedSession(String),
@@ -557,8 +561,6 @@ pub enum ParsingErrorType {
     NumberTooHigh(isize, isize),
     #[error("Diretiva não reconhecida")]
     UnsupportedDirective(String),
-    #[error("Instrução {0} inválida")]
-    InvalidInstruction(String),
     #[error("Rótulo {0} já está em uso")]
     DuplicatedLabel(String),
     #[error(
@@ -660,18 +662,15 @@ mod tests {
             '\n' as u16,
         ];
         assert_eq!(data, expected);
-            let expected = [
-                0b0111000000000101,
-                0b1010111111111111,
-                0b1111101000000000,
-                0b0000000000000011 + DATA_SEGMENT_START as u16,
-                0b1111110011111111,
-                0b0110000000000001
-            ];
-        assert_eq!(
-            ins,
-            expected
-        );
+        let expected = [
+            0b0111000000000101,
+            0b1010111111111111,
+            0b1111101000000000,
+            0b0000000000000011 + DATA_SEGMENT_START as u16,
+            0b1111110011111111,
+            0b0110000000000001,
+        ];
+        assert_eq!(ins, expected);
     }
 
     fn assert_err(content: &str, err: ParsingErrorType) {

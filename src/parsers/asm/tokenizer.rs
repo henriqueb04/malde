@@ -16,6 +16,25 @@ pub enum TokenType {
     Newline,
 }
 
+impl Display for TokenType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                TokenType::Identifier => "identificador".to_string(),
+                TokenType::Directive => "diretiva".to_string(),
+                TokenType::Semicolon => "ponto e vírgula".to_string(),
+                TokenType::Colon => "dois pontos".to_string(),
+                TokenType::Comma => "vírgula".to_string(),
+                TokenType::String(..) => "string".to_string(),
+                TokenType::Int(n) => format!("inteiro {}", n),
+                TokenType::Newline => "quebra de linha".to_string(),
+            }
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Token {
     pub token_type: TokenType,
@@ -24,17 +43,8 @@ pub struct Token {
 
 impl Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} ({})", match self.token_type {
-            TokenType::Identifier => "identificador".to_string(),
-            TokenType::Directive => "diretiva".to_string(),
-            TokenType::Semicolon => "ponto e vírgula".to_string(),
-            TokenType::Colon => "dois pontos".to_string(),
-            TokenType::Comma => "vírgula".to_string(),
-            TokenType::String(..) => "string".to_string(),
-            TokenType::Int(n) => format!("inteiro {}", n),
-            TokenType::Newline => "quebra de linha".to_string(),
-        }, self.span)
-}
+        write!(f, "{} ({})", self.token_type, self.span)
+    }
 }
 
 impl HasSpan for Token {
@@ -236,8 +246,23 @@ impl<'a> Iterator for Tokenizer<'a> {
                         } else {
                             c
                         };
+                        if !n.is_ascii() {
+                            return Some(Err(TokenizerError {
+                                span: Span {
+                                    start: self.reader.offset() - n.len_utf8(),
+                                    end: self.reader.offset(),
+                                    line,
+                                    col,
+                                },
+                                error_type: TokenizerErrorType::NotAsciiChar(n),
+                            }));
+                        }
                         let (_, c) = self.reader.next()?;
-                        if c != '\'' { None } else { Some(n as isize) }
+                        if c != '\'' {
+                            None
+                        } else {
+                            Some(Ok(n as isize))
+                        }
                     });
                     let span = Span {
                         start,
@@ -246,10 +271,13 @@ impl<'a> Iterator for Tokenizer<'a> {
                         col,
                     };
                     if let Some(n) = n {
-                        Some(Token {
-                            token_type: TokenType::Int(n),
-                            span,
-                        })
+                        match n {
+                            Ok(n) => Some(Token {
+                                token_type: TokenType::Int(n),
+                                span,
+                            }),
+                            Err(err) => return Some(Err(err)),
+                        }
                     } else {
                         return Some(Err(TokenizerError {
                             error_type: TokenizerErrorType::UnendedChar,
@@ -405,12 +433,14 @@ pub enum TokenizerErrorType {
     InvalidNumber,
     #[error("Diretiva inválida")]
     InvalidDirective,
-    #[error("Caracter inexperado")]
+    #[error("Caractere inexperado")]
     UnexpectedCharacter,
     #[error("String não terminada")]
     UnendedString,
     #[error("Caractere não terminado")]
     UnendedChar,
+    #[error("Caractere {0} não é ASCII")]
+    NotAsciiChar(char),
 }
 
 fn is_identifier_start(c: &char) -> bool {
@@ -435,12 +465,14 @@ mod tests {
 
     #[test]
     fn test_tokens() {
-        let source_map = SourceMap::from_content("5 .data
+        let source_map = SourceMap::from_content(
+            "5 .data
                 TESTE1: .word 1, -2\\\n, 0xff, 0b11111111
                 TESTE2: .asciz \"String\n ascii com \\n caracteres de\\tcontrole\"
                 TESTE3: .byte ' ', '\\n'
             .text
-            MAIN: LODD TESTE1; LOCO -1");
+            MAIN: LODD TESTE1; LOCO -1",
+        );
         let mut lexer = Tokenizer::new(&source_map);
         let mut assert_next = lexer_assert(&mut lexer);
         assert_next(TokenType::Int(5), "5");
