@@ -1,5 +1,5 @@
 use log::warn;
-use std::{cell::RefCell, rc::Rc};
+use std::sync::{Arc, Mutex};
 
 use crate::architecture::signals::{ALUSignals, ControlSignals};
 
@@ -37,13 +37,13 @@ impl MicroMem {
 
 pub struct ControlUnit {
     pub signals: ControlSignals,
-    pub micro_mem: Rc<RefCell<MicroMem>>,
+    pub micro_mem: Arc<Mutex<MicroMem>>,
     pub prev_mpc: usize,
     pub mpc: usize,
 }
 
 impl ControlUnit {
-    pub fn new(micro_mem: Rc<RefCell<MicroMem>>) -> Self {
+    pub fn new(micro_mem: Arc<Mutex<MicroMem>>) -> Self {
         ControlUnit {
             signals: ControlSignals::default(),
             micro_mem,
@@ -53,7 +53,7 @@ impl ControlUnit {
     }
 
     pub fn load_signals(&mut self) {
-        self.signals = self.micro_mem.borrow().get_instruction(&self.mpc);
+        self.signals = self.micro_mem.lock().unwrap().get_instruction(&self.mpc);
     }
 
     pub fn advance(&mut self, alu_sigs: &ALUSignals) -> (usize, usize) {
@@ -76,7 +76,7 @@ impl ControlUnit {
             3 => self.signals.addr as usize,
             _ => self.mpc + 1,
         };
-        if self.mpc >= self.micro_mem.borrow().len {
+        if self.mpc >= self.micro_mem.lock().unwrap().len {
             self.mpc = 0;
             warn!("MPC é maior que o tamanho da memória de microinstruções. Redefinindo como 0...");
         }

@@ -1,9 +1,8 @@
 use thiserror::Error;
 
 use std::{
-    cell::{Ref, RefCell},
     mem::discriminant,
-    rc::Rc,
+    sync::{Arc, Mutex},
 };
 
 use crate::{
@@ -31,8 +30,8 @@ pub struct VM {
     state: VMState,
     execution_type: Option<VMExecutionType>,
     initial_memory: Option<(Vec<u16>, Vec<u16>)>,
-    memory: Rc<RefCell<Memory>>,
-    micro_mem: Rc<RefCell<MicroMem>>,
+    memory: Arc<Mutex<Memory>>,
+    micro_mem: Arc<Mutex<MicroMem>>,
     cpu: Cpu,
     instructions: Vec<Instruction>,
     microinstructions: Vec<Microinstruction>,
@@ -49,13 +48,13 @@ impl Default for VM {
 
 impl VM {
     pub fn new() -> Self {
-        let memory = Rc::new(RefCell::new(Memory::new()));
-        let micro_mem = Rc::new(RefCell::new(MicroMem::new(Vec::new())));
+        let memory = Arc::new(Mutex::new(Memory::new()));
+        let micro_mem = Arc::new(Mutex::new(MicroMem::new(Vec::new())));
         VM {
             keywords: KeywordMap::default(),
-            memory: Rc::clone(&memory),
-            micro_mem: Rc::clone(&micro_mem),
-            cpu: Cpu::new(Rc::clone(&memory), Rc::clone(&micro_mem)),
+            memory: Arc::clone(&memory),
+            micro_mem: Arc::clone(&micro_mem),
+            cpu: Cpu::new(Arc::clone(&memory), Arc::clone(&micro_mem)),
             state: VMState::Uninitialized,
             execution_type: None,
             microinstructions: Vec::new(),
@@ -73,25 +72,31 @@ impl VM {
         &self.events
     }
 
-    pub fn assemble_mic<'a>(&mut self, source: &'a str) -> Result<(), MALParsingError<'a>> {
+    pub fn assemble_mic<'a>(
+        &mut self,
+        source: &'a str,
+    ) -> Result<Vec<Microinstruction>, MALParsingError<'a>> {
         let parser = MALParser::new();
         let microinstructions = parser.parse_instructions(source)?;
-        self.micro_mem.replace(MicroMem::new(
-            microinstructions
-                .iter()
-                .map(|m| m.mir.clone().into())
-                .collect(),
-        ));
+        {
+            let mut micro_mem = self.micro_mem.lock().unwrap();
+            *micro_mem = MicroMem::new(
+                microinstructions
+                    .iter()
+                    .map(|m| m.mir.clone().into())
+                    .collect(),
+            );
+        }
         self.reset();
         self.state = VMState::Active;
         self.microinstructions = microinstructions;
-        Ok(())
+        Ok(self.microinstructions.clone())
     }
 
     pub fn assemble_mac<'a>(
         &mut self,
         source_map: &'a SourceMap,
-    ) -> Result<(), ASMParsingError<'a>> {
+    ) -> Result<Vec<Instruction>, ASMParsingError<'a>> {
         let parser = ASMParser::new(source_map, self.keywords.clone(), DATA_SEGMENT_START);
         let ASMParsingResult {
             data_mem,
@@ -101,7 +106,7 @@ impl VM {
         self.set_initial_memory(ins_mem, data_mem);
         self.instructions = instructions;
         self.reset();
-        Ok(())
+        Ok(self.instructions.clone())
     }
 
     const MIN_INT: isize = i16::MIN as isize;
@@ -127,7 +132,7 @@ impl VM {
                 (VMInputResponse::String(s), VMInputRequest::String) => {
                     let addr = self.registers().2[Registers::AC] as usize;
                     let max_size = self.registers().2[Registers::A] as usize;
-                    let mut memory = self.memory.borrow_mut();
+                    let mut memory = self.memory.lock().unwrap();
                     let mut size = 0;
                     for (i, c) in s.as_bytes().iter().enumerate() {
                         size += 1;
@@ -175,15 +180,16 @@ impl VM {
     }
     pub fn reset_memory(&mut self) {
         if let Some((initial_instructions, initial_data)) = self.initial_memory.as_ref() {
-            let mut memory = self.memory.borrow_mut();
+            let mut memory = self.memory.lock().unwrap();
             memory.clear();
             memory.load(TEXT_SEGMENT_START, initial_instructions);
             memory.load(DATA_SEGMENT_START - 1, &[0]); // HALT de segurança
             memory.load(DATA_SEGMENT_START, initial_data);
         }
     }
-    pub fn memory(&self) -> Ref<'_, MemoryArray> {
-        Ref::map(self.memory.borrow(), |memory| memory.get_ref())
+    pub fn memory(&self) -> MemoryArray {
+        let memory = self.memory.lock().unwrap();
+        *memory.get_ref()
     }
 
     // Cpu
@@ -273,7 +279,7 @@ impl VM {
             Syscalls::PRINT_STRING => {
                 let start = registers[Registers::AC];
                 let s = {
-                    let memory = self.memory.borrow();
+                    let memory = self.memory.lock().unwrap();
                     let m = memory.get_ref();
                     let mut i = start as usize;
                     let mut s = String::new();
@@ -345,7 +351,7 @@ pub enum VMInputResponse {
     String(String),
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct VMResponse {
     pub mpc: usize,
     pub prev_mpc: usize,

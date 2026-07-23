@@ -4,7 +4,7 @@ pub mod events;
 pub mod memory;
 pub mod signals;
 
-use std::{cell::RefCell, rc::Rc};
+use std::sync::{Arc, Mutex};
 
 use control::{ControlUnit, MicroMem};
 use datapath::Datapath;
@@ -15,11 +15,11 @@ use crate::architecture::{datapath::RegisterBank, events::EventHandler};
 pub struct Cpu {
     datapath: Datapath,
     control_unit: ControlUnit,
-    memory: Rc<RefCell<Memory>>,
+    memory: Arc<Mutex<Memory>>,
 }
 
 impl Cpu {
-    pub fn new(memory: Rc<RefCell<Memory>>, micro_mem: Rc<RefCell<MicroMem>>) -> Self {
+    pub fn new(memory: Arc<Mutex<Memory>>, micro_mem: Arc<Mutex<MicroMem>>) -> Self {
         Cpu {
             memory,
             control_unit: ControlUnit::new(micro_mem),
@@ -30,12 +30,13 @@ impl Cpu {
     pub fn advance_microinstruction(&mut self, events: &mut EventHandler) -> (usize, usize) {
         self.control_unit.load_signals();
         self.datapath.clock(&self.control_unit.signals, events);
-        self.memory.borrow_mut().clock(
+        self.memory.lock().unwrap().clock(
             &self.control_unit.signals,
             &self.datapath.mar,
             &mut self.datapath.mbr,
             events,
         );
+
         let (mpc, prev_mpc) = self.control_unit.advance(&self.datapath.alu_sigs);
         (mpc, prev_mpc)
     }
