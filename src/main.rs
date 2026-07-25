@@ -20,7 +20,7 @@ use log::{debug, error};
 use poll_promise::Promise;
 
 use crate::{
-    architecture::{memory::MemoryArray, signals::CONTROL_SIGNAL_NAMES},
+    architecture::signals::CONTROL_SIGNAL_NAMES,
     parsers::{asm::Instruction, mal::Microinstruction, source_map::SourceMap},
     virtual_machine::{
         DATA_SEGMENT_START, MEMORY_SIZE, Registers, TEXT_SEGMENT_START, VM, VMExecutionInfo,
@@ -59,8 +59,7 @@ pub struct MyApp {
     breaks_mac: HashSet<usize>,
     macroprogram: Option<String>,
     microprogram: Option<String>,
-    msg_modal_open: bool,
-    msg_modal_text: String,
+    msg_modal_text: Option<String>,
     value_format: ValueFormatType,
     scroll_mpc: Option<usize>,
     prev_pc: usize,
@@ -122,11 +121,11 @@ impl eframe::App for MyApp {
             ui.separator();
             self.instruction_table_ui(ui);
         });
-        if self.msg_modal_open {
+        if let Some(text) = &self.msg_modal_text {
             let modal = egui::Modal::new(egui::Id::new("Msg modal 1")).show(ui, |ui| {
                 ui.set_width(300.0);
                 ui.heading("Message");
-                ui.monospace(self.msg_modal_text.clone());
+                ui.monospace(text);
                 egui::Sides::new().show(
                     ui,
                     |_ui| {},
@@ -138,18 +137,15 @@ impl eframe::App for MyApp {
                 )
             });
             if modal.should_close() {
-                self.msg_modal_open = false;
+                self.msg_modal_text = None;
             }
         }
         self.input_request_ui(ui);
-        if let Some(Ok(input_request)) = self.vm_input_request.as_ref().map(|o| o.try_recv()) {
-            self.input_modal_request = Some(input_request);
-        }
-        if let Some(Ok(input_validation)) = self.vm_input_validation.as_ref().map(|o| o.try_recv()) {
+        if let Some(Ok(input_validation)) = self.vm_input_validation.as_ref().map(|o| o.try_recv())
+        {
             match input_validation {
                 Ok(..) => {
                     self.input_modal_request = None;
-                    self.vm_input_request = None;
                     self.vm_input_validation = None;
                     self.input_modal_text.clear();
                     self.input_model_error.clear();
@@ -158,6 +154,9 @@ impl eframe::App for MyApp {
                     self.input_model_error = err;
                 }
             }
+        }
+        if let Some(Ok(input_request)) = self.vm_input_request.as_ref().map(|o| o.try_recv()) {
+            self.input_modal_request = Some(input_request);
         }
         if let Some(vm_task) = self.vm_busy.as_ref()
             && let Some(vm_task) = vm_task.ready()
@@ -237,6 +236,7 @@ impl MyApp {
     }
     fn reset_vm(&mut self) {
         self.vm.lock().unwrap().reset();
+        self.memory = self.vm.lock().unwrap().memory().into();
         self.selected = 0;
         self.last_res.mpc = 0;
         self.last_res.prev_mpc = 0;
@@ -263,12 +263,23 @@ impl MyApp {
             Ok(VMTask::Execute(res))
         }));
     }
+    fn pause(&mut self) {
+        if let Some(pause_s) = &self.vm_pauser {
+            pause_s.send(()).expect("Erro ao pausar o programa");
+        }
+    }
 
     fn send_input_response(&mut self, inp: VMInputResponse) {
-        let request = self.input_modal_request.as_ref().expect("Tentativa de enviar entrada não requisitada");
+        let request = self
+            .input_modal_request
+            .as_ref()
+            .expect("Tentativa de enviar entrada não requisitada");
         let (s_validation, r_validation) = channel();
         self.vm_input_validation = Some(r_validation);
-        request.sender.send((inp, s_validation)).expect("Tentativa de enviar entrada não requisitada");
+        request
+            .sender
+            .send((inp, s_validation))
+            .expect("Tentativa de enviar entrada não requisitada");
     }
 
     ////////////
@@ -285,8 +296,7 @@ impl MyApp {
 
     fn show_error_modal(&mut self, msg: String) {
         error!("{}", msg);
-        self.msg_modal_text = msg;
-        self.msg_modal_open = true;
+        self.msg_modal_text = Some(msg);
     }
 
     fn input_request_ui(&mut self, ui: &mut egui::Ui) {
@@ -350,6 +360,15 @@ impl MyApp {
             ui.horizontal(|ui| {
                 if ui.button("Resetar").clicked() {
                     self.reset_vm();
+                }
+                if self.vm_busy.is_none() {
+                    if ui.button("Executar").clicked() {
+                        self.execute(VMExecutionType::Run);
+                    }
+                } else {
+                    if ui.button("Pausar").clicked() {
+                        self.pause();
+                    }
                 }
                 ui.add_enabled_ui(self.last_res.state != VMState::Halted, |ui| {
                     if ui.button("Próxima microinstrução").clicked() {

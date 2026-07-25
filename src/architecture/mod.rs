@@ -41,6 +41,9 @@ impl Cpu {
         (mpc, prev_mpc)
     }
 
+    pub fn mpc(&self) -> &usize {
+        &self.control_unit.mpc
+    }
     pub fn get_registers(&self) -> (u16, u16, RegisterBank) {
         (
             self.datapath.mar,

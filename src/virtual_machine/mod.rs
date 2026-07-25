@@ -69,13 +69,6 @@ impl VM {
         }
     }
 
-    pub fn stdout(&self) -> &String {
-        &self.stdout
-    }
-    pub fn events(&self) -> &EventHandler {
-        &self.events
-    }
-
     pub fn assemble_mic<'a>(
         &mut self,
         source: &'a str,
@@ -196,6 +189,7 @@ impl VM {
         self.execution_type = Some(execution_type.clone());
         let r = match &self.state {
             VMState::Active => match execution_type {
+                VMExecutionType::Run => self.run_all(&execution_info),
                 VMExecutionType::Macroinstruction => self.advance_macroinstruction(&execution_info),
                 VMExecutionType::Microinstruction => self.advance_microinstruction(&execution_info),
             },
@@ -212,6 +206,17 @@ impl VM {
             registers: self.registers().clone(),
         }
     }
+    fn run_all(&mut self, execution_info: &VMExecutionInfo) -> (usize, usize) {
+        let mut res = (0, 0);
+        while self.state == VMState::Active {
+            self.events.instruction_reads.clear();
+            res = self.advance_microinstruction(execution_info);
+            if execution_info.r_pause.try_recv().is_ok() {
+                break;
+            }
+        }
+        res
+    }
     fn advance_microinstruction(&mut self, execution_info: &VMExecutionInfo) -> (usize, usize) {
         match &self.state {
             VMState::Active => {
@@ -221,14 +226,24 @@ impl VM {
                 {
                     let (input_s, input_r) =
                         channel::<(VMInputResponse, Sender<Result<(), String>>)>();
-                    execution_info.s_input_request.send(VMInputRequest {
-                        typ: input_request,
-                        sender: input_s,
-                    });
-                    let (input, validation_s) = input_r
-                        .recv()
-                        .expect("Entrada requisitada, mas não recebida");
-                    validation_s.send(self.handle_input(input).map_err(|err| err.to_string()));
+                    execution_info
+                        .s_input_request
+                        .send(VMInputRequest {
+                            typ: input_request,
+                            sender: input_s,
+                        })
+                        .expect("Não foi possível requisitar entrada");
+                    let mut valid = Err(String::new());
+                    while valid.is_err() {
+                        let (input, validation_s) = match input_r.recv() {
+                            Ok(a) => a,
+                            Err(err) => panic!("Entrada requisitada, mas não recebida: {}", err),
+                        };
+                        valid = self.handle_input(input).map_err(|err| err.to_string());
+                        validation_s
+                            .send(valid.clone())
+                            .expect("Não foi possível validar entrada");
+                    }
                 };
                 (mpc, prev_mpc)
             }
@@ -239,6 +254,9 @@ impl VM {
         let mut res = (0, 0);
         while self.events.instruction_reads.is_empty() && self.state == VMState::Active {
             res = self.advance_microinstruction(execution_info);
+            if execution_info.r_pause.try_recv().is_ok() {
+                break;
+            }
         }
         res
     }
@@ -371,6 +389,7 @@ pub enum VMState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VMExecutionType {
+    Run,
     Macroinstruction,
     Microinstruction,
 }

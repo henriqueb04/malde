@@ -12,7 +12,7 @@ pub struct Memory {
     wr_clock_count: u8,
     previous_mar: u16,
     previous_mbr: u16,
-    memory: MemoryArray,
+    memory: Box<MemoryArray>,
 }
 
 impl Memory {
@@ -22,7 +22,7 @@ impl Memory {
             wr_clock_count: 0,
             previous_mar: 0,
             previous_mbr: 0,
-            memory: [0; MEMORY_SIZE],
+            memory: Box::new([0; MEMORY_SIZE]),
         }
     }
 
