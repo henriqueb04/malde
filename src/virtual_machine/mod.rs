@@ -1,8 +1,12 @@
 use thiserror::Error;
 
 use std::{
+    collections::HashSet,
     mem::discriminant,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        mpsc::{Receiver, Sender, channel},
+    },
 };
 
 use crate::{
@@ -111,13 +115,10 @@ impl VM {
 
     const MIN_INT: isize = i16::MIN as isize;
     const MAX_INT: isize = u16::MAX as isize;
-    pub fn handle_input(
-        &mut self,
-        input_type: VMInputResponse,
-    ) -> Result<Option<VMResponse>, VMInputError> {
+    fn handle_input(&mut self, input_type: VMInputResponse) -> Result<(), VMInputError> {
         let res: Result<(), VMInputError> = if let VMState::Waiting(request_type) = &self.state {
             match (input_type, request_type) {
-                (VMInputResponse::Int(n), VMInputRequest::Int) => {
+                (VMInputResponse::Int(n), VMInputRequestType::Int) => {
                     if (VM::MIN_INT..=VM::MAX_INT).contains(&n) {
                         self.cpu.set_register(Registers::AC, n as u16);
                         Ok(())
@@ -125,11 +126,11 @@ impl VM {
                         Err(VMInputError::InvalidNumber(n, VM::MIN_INT, VM::MAX_INT))
                     }
                 }
-                (VMInputResponse::Char(c), VMInputRequest::Char) => {
+                (VMInputResponse::Char(c), VMInputRequestType::Char) => {
                     self.cpu.set_register(Registers::AC, c as u8 as u16);
                     Ok(())
                 }
-                (VMInputResponse::String(s), VMInputRequest::String) => {
+                (VMInputResponse::String(s), VMInputRequestType::String) => {
                     let addr = self.registers().2[Registers::AC] as usize;
                     let max_size = self.registers().2[Registers::A] as usize;
                     let mut memory = self.memory.lock().unwrap();
@@ -149,10 +150,10 @@ impl VM {
         } else {
             Err(VMInputError::Unexpected)
         };
-        res.map(|_| {
+        if res.is_ok() {
             self.state = VMState::Active;
-            self.resume()
-        })
+        }
+        res
     }
 
     pub fn microinstructions(&self) -> &Vec<Microinstruction> {
@@ -160,13 +161,6 @@ impl VM {
     }
     pub fn instructions(&self) -> &Vec<Instruction> {
         &self.instructions
-    }
-
-    pub fn is_ready(&self) -> bool {
-        self.state != VMState::Uninitialized
-    }
-    pub fn is_active(&self) -> bool {
-        self.state == VMState::Active
     }
 
     fn print_to_stdout(&mut self, s: &str) {
@@ -193,52 +187,58 @@ impl VM {
     }
 
     // Cpu
-    pub fn execute(&mut self, execution_type: VMExecutionType) -> VMResponse {
+    pub fn execute(
+        &mut self,
+        execution_type: VMExecutionType,
+        execution_info: VMExecutionInfo,
+    ) -> VMResponse {
         self.events.clear();
         self.execution_type = Some(execution_type.clone());
         let r = match &self.state {
             VMState::Active => match execution_type {
-                VMExecutionType::Macroinstruction => self.advance_macroinstruction(),
-                VMExecutionType::Microinstruction => self.advance_microinstruction(),
+                VMExecutionType::Macroinstruction => self.advance_macroinstruction(&execution_info),
+                VMExecutionType::Microinstruction => self.advance_microinstruction(&execution_info),
             },
-            _ => VMResponse::default(),
+            _ => (0, 0),
         };
-        if discriminant(&self.state) != discriminant(&VMState::Waiting(VMInputRequest::Int)) {
+        if discriminant(&self.state) != discriminant(&VMState::Waiting(VMInputRequestType::Int)) {
             self.execution_type = None;
         }
-        r
-    }
-    pub fn resume(&mut self) -> Option<VMResponse> {
-        if let Some(execution_type) = &self.execution_type
-            && *execution_type == VMExecutionType::Macroinstruction
-        {
-            Some(self.advance_macroinstruction())
-        } else {
-            None
+        VMResponse {
+            mpc: r.0,
+            prev_mpc: r.1,
+            events: self.events.clone(),
+            state: self.state.clone(),
+            registers: self.registers().clone(),
         }
     }
-    fn advance_microinstruction(&mut self) -> VMResponse {
+    fn advance_microinstruction(&mut self, execution_info: &VMExecutionInfo) -> (usize, usize) {
         match &self.state {
             VMState::Active => {
                 let (mpc, prev_mpc) = self.cpu.advance_microinstruction(&mut self.events);
-                let request = if self.microinstructions()[prev_mpc].mir.syscall {
-                    self.execute_syscall()
-                } else {
-                    None
+                if self.microinstructions()[prev_mpc].mir.syscall
+                    && let Some(input_request) = self.execute_syscall()
+                {
+                    let (input_s, input_r) =
+                        channel::<(VMInputResponse, Sender<Result<(), String>>)>();
+                    execution_info.s_input_request.send(VMInputRequest {
+                        typ: input_request,
+                        sender: input_s,
+                    });
+                    let (input, validation_s) = input_r
+                        .recv()
+                        .expect("Entrada requisitada, mas não recebida");
+                    validation_s.send(self.handle_input(input).map_err(|err| err.to_string()));
                 };
-                VMResponse {
-                    mpc,
-                    prev_mpc,
-                    request,
-                }
+                (mpc, prev_mpc)
             }
             _ => Default::default(),
         }
     }
-    fn advance_macroinstruction(&mut self) -> VMResponse {
-        let mut res = VMResponse::default();
+    fn advance_macroinstruction(&mut self, execution_info: &VMExecutionInfo) -> (usize, usize) {
+        let mut res = (0, 0);
         while self.events.instruction_reads.is_empty() && self.state == VMState::Active {
-            res = self.advance_microinstruction();
+            res = self.advance_microinstruction(execution_info);
         }
         res
     }
@@ -254,11 +254,11 @@ impl VM {
             self.print_to_stdout("\n\n----- programa reiniciado -----\n\n");
         }
     }
-    pub fn registers(&self) -> (u16, u16, &RegisterBank) {
+    pub fn registers(&self) -> (u16, u16, RegisterBank) {
         self.cpu.get_registers()
     }
 
-    fn execute_syscall(&mut self) -> Option<VMInputRequest> {
+    fn execute_syscall(&mut self) -> Option<VMInputRequestType> {
         let (_, _, registers) = self.cpu.get_registers();
         match registers[Registers::E] {
             Syscalls::PRINT_INT => {
@@ -303,16 +303,16 @@ impl VM {
                 None
             }
             Syscalls::READ_INT => {
-                self.state = VMState::Waiting(VMInputRequest::Int);
-                Some(VMInputRequest::Int)
+                self.state = VMState::Waiting(VMInputRequestType::Int);
+                Some(VMInputRequestType::Int)
             }
             Syscalls::READ_CHAR => {
-                self.state = VMState::Waiting(VMInputRequest::Char);
-                Some(VMInputRequest::Char)
+                self.state = VMState::Waiting(VMInputRequestType::Char);
+                Some(VMInputRequestType::Char)
             }
             Syscalls::READ_STRING => {
-                self.state = VMState::Waiting(VMInputRequest::String);
-                Some(VMInputRequest::String)
+                self.state = VMState::Waiting(VMInputRequestType::String);
+                Some(VMInputRequestType::String)
             }
             Syscalls::HALT => {
                 self.print_to_stdout("\n\n----- programa encerrado (0) -----\n\n");
@@ -339,7 +339,7 @@ impl Syscalls {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum VMInputRequest {
+pub enum VMInputRequestType {
     Int,
     Char,
     String,
@@ -355,15 +355,17 @@ pub enum VMInputResponse {
 pub struct VMResponse {
     pub mpc: usize,
     pub prev_mpc: usize,
-    pub request: Option<VMInputRequest>,
+    pub events: EventHandler,
+    pub state: VMState,
+    pub registers: (u16, u16, RegisterBank),
 }
 
-#[derive(Default, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub enum VMState {
     #[default]
     Uninitialized,
     Active,
-    Waiting(VMInputRequest),
+    Waiting(VMInputRequestType),
     Halted,
 }
 
@@ -371,6 +373,18 @@ pub enum VMState {
 pub enum VMExecutionType {
     Macroinstruction,
     Microinstruction,
+}
+
+pub struct VMInputRequest {
+    pub typ: VMInputRequestType,
+    pub sender: Sender<(VMInputResponse, Sender<Result<(), String>>)>,
+}
+
+pub struct VMExecutionInfo {
+    pub r_pause: Receiver<()>,
+    pub s_input_request: Sender<VMInputRequest>,
+    pub breaks_mic: HashSet<usize>,
+    pub breaks_mac: HashSet<usize>,
 }
 
 #[derive(Debug, Error)]

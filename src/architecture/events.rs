@@ -6,7 +6,7 @@ pub struct WriteEvent {
     pub after: u16,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct EventHandler {
     pub register_writes: HashMap<u8, WriteEvent>,
     pub memory_writes: HashMap<u16, WriteEvent>,

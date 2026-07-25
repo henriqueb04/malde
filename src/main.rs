@@ -4,19 +4,27 @@ mod architecture;
 mod parsers;
 mod virtual_machine;
 
-use log::{debug, error};
-
-use std::{fmt::Display, fs};
+use std::{
+    collections::HashSet,
+    fmt::Display,
+    fs,
+    sync::{
+        Arc, Mutex,
+        mpsc::{Receiver, Sender, channel},
+    },
+};
 
 use eframe::egui::{self, Color32};
 use egui_extras::{Column, TableBuilder};
+use log::{debug, error};
+use poll_promise::Promise;
 
 use crate::{
-    architecture::signals::CONTROL_SIGNAL_NAMES,
-    parsers::source_map::SourceMap,
+    architecture::{memory::MemoryArray, signals::CONTROL_SIGNAL_NAMES},
+    parsers::{asm::Instruction, mal::Microinstruction, source_map::SourceMap},
     virtual_machine::{
-        DATA_SEGMENT_START, MEMORY_SIZE, Registers, TEXT_SEGMENT_START, VM, VMExecutionType,
-        VMInputRequest, VMInputResponse, VMResponse,
+        DATA_SEGMENT_START, MEMORY_SIZE, Registers, TEXT_SEGMENT_START, VM, VMExecutionInfo,
+        VMExecutionType, VMInputRequest, VMInputRequestType, VMInputResponse, VMResponse, VMState,
     },
 };
 
@@ -35,17 +43,25 @@ fn main() -> eframe::Result {
 
 #[derive(Default)]
 pub struct MyApp {
-    vm: VM,
+    vm: Arc<Mutex<VM>>,
+    vm_busy: Option<Promise<Result<VMTask, String>>>,
+    vm_input_request: Option<Receiver<VMInputRequest>>,
+    vm_input_validation: Option<Receiver<Result<(), String>>>,
+    vm_pauser: Option<Sender<()>>,
+    memory: Vec<u16>,
+    input_modal_request: Option<VMInputRequest>,
+    input_modal_text: String,
+    input_model_error: String,
+    last_res: VMResponse,
+    instructions: Vec<Instruction>,
+    microinstructions: Vec<Microinstruction>,
+    breaks_mic: HashSet<usize>,
+    breaks_mac: HashSet<usize>,
     macroprogram: Option<String>,
     microprogram: Option<String>,
     msg_modal_open: bool,
     msg_modal_text: String,
-    input_modal_type: Option<VMInputRequest>,
-    input_modal_text: String,
-    input_model_error: String,
     value_format: ValueFormatType,
-    prev_mpc: usize,
-    mpc: usize,
     scroll_mpc: Option<usize>,
     prev_pc: usize,
     pc: usize,
@@ -106,13 +122,6 @@ impl eframe::App for MyApp {
             ui.separator();
             self.instruction_table_ui(ui);
         });
-        if let Some(input_type) = self.input_modal_type.clone() {
-            egui::Modal::new(egui::Id::new("Input modal")).show(ui, |ui| {
-                ui.set_width(300.0);
-                ui.heading("Entrada");
-                self.input_request_ui(ui, &input_type);
-            });
-        }
         if self.msg_modal_open {
             let modal = egui::Modal::new(egui::Id::new("Msg modal 1")).show(ui, |ui| {
                 ui.set_width(300.0);
@@ -132,6 +141,53 @@ impl eframe::App for MyApp {
                 self.msg_modal_open = false;
             }
         }
+        self.input_request_ui(ui);
+        if let Some(Ok(input_request)) = self.vm_input_request.as_ref().map(|o| o.try_recv()) {
+            self.input_modal_request = Some(input_request);
+        }
+        if let Some(Ok(input_validation)) = self.vm_input_validation.as_ref().map(|o| o.try_recv()) {
+            match input_validation {
+                Ok(..) => {
+                    self.input_modal_request = None;
+                    self.vm_input_request = None;
+                    self.vm_input_validation = None;
+                    self.input_modal_text.clear();
+                    self.input_model_error.clear();
+                }
+                Err(err) => {
+                    self.input_model_error = err;
+                }
+            }
+        }
+        if let Some(vm_task) = self.vm_busy.as_ref()
+            && let Some(vm_task) = vm_task.ready()
+        {
+            match vm_task {
+                Ok(task) => match task {
+                    VMTask::Execute(res) => {
+                        self.scroll_mpc = Some(res.mpc);
+                        self.selected = res.mpc;
+                        self.last_res = res.clone();
+                        if let Some(pc) = self.last_res.events.instruction_reads.iter().next() {
+                            self.prev_pc = self.pc;
+                            self.pc = *pc as usize;
+                            self.scroll_pc = Some(self.pc);
+                        }
+                    }
+                    VMTask::AssembleMic(mics) => {
+                        self.microinstructions = mics.clone();
+                    }
+                    VMTask::AssembleMac(ins) => {
+                        self.instructions = ins.clone();
+                    }
+                },
+                Err(err) => {
+                    self.show_error_modal(err.clone());
+                }
+            }
+            self.vm_busy = None;
+            self.memory = Vec::from(self.vm.lock().unwrap().memory());
+        }
     }
 }
 
@@ -141,78 +197,78 @@ impl MyApp {
             // FIXME: retirar caminhos fixos
             macroprogram: Some(String::from("/home/henrique/code/mac1/teste3.asm")),
             microprogram: Some(String::from("/home/henrique/code/mac1/malde.mal")),
-            vm: VM::new(),
+            vm: Arc::new(Mutex::new(VM::new())),
             mem_goto: Some(MemGoto::Data),
             ..Default::default()
         }
     }
     fn assemble_micro(&mut self, path: &str) {
-        let Ok(contents) = fs::read_to_string(path) else {
-            self.show_error_modal(String::from("Falha ao ler arquivo"));
-            return;
-        };
-        if let Err(err) = self.vm.assemble_mic(&contents) {
-            self.show_error_modal(err.to_string());
-        };
+        let vm_ptr = Arc::clone(&self.vm);
+        let path = path.to_string();
+        self.vm_busy = Some(Promise::spawn_thread(
+            "assemble_micro",
+            move || -> Result<VMTask, String> {
+                let contents = fs::read_to_string(&path).map_err(|err| err.to_string())?;
+                let mics = vm_ptr
+                    .lock()
+                    .unwrap()
+                    .assemble_mic(&contents)
+                    .map_err(|err| err.to_string())?;
+                Ok(VMTask::AssembleMic(mics))
+            },
+        ));
     }
     fn assemble_macro(&mut self, path: &str) {
-        match SourceMap::from_filepath(path) {
-            Ok(source_map) => {
-                if let Err(err) = self.vm.assemble_mac(&source_map) {
-                    self.show_error_modal(err.to_string());
-                };
-            }
-            Err(err) => {
-                self.show_error_modal(format!("Falha ao ler arquivo: {}", err));
-            }
-        }
+        let vm_ptr = Arc::clone(&self.vm);
+        let path = path.to_string();
+        self.vm_busy = Some(Promise::spawn_thread(
+            "assemble_macro",
+            move || -> Result<VMTask, String> {
+                let source_map = SourceMap::from_filepath(&path)
+                    .map_err(|err| format!("Falha ao ler arquivo: {}", err))?;
+                let ins = vm_ptr
+                    .lock()
+                    .unwrap()
+                    .assemble_mac(&source_map)
+                    .map_err(|err| err.to_string())?;
+                Ok(VMTask::AssembleMac(ins))
+            },
+        ));
     }
     fn reset_vm(&mut self) {
-        self.vm.reset();
+        self.vm.lock().unwrap().reset();
         self.selected = 0;
-        self.prev_mpc = 0;
-        self.mpc = 0;
+        self.last_res.mpc = 0;
+        self.last_res.prev_mpc = 0;
     }
 
     fn execute(&mut self, execution_type: VMExecutionType) {
-        let res = self.vm.execute(execution_type);
-        self.handle_response(res);
-        if let Some(pc) = self.vm.events().instruction_reads.iter().next() {
-            self.prev_pc = self.pc;
-            self.pc = *pc as usize;
-            self.scroll_pc = Some(self.pc);
-        }
-    }
-
-    fn handle_response(&mut self, res: VMResponse) {
-        let VMResponse {
-            mpc,
-            prev_mpc,
-            request,
-        } = res;
-        if let Some(request) = request {
-            self.handle_input_request(request);
-        }
-        self.mpc = mpc;
-        self.prev_mpc = prev_mpc;
-        self.scroll_mpc = Some(self.mpc);
-        self.selected = self.mpc;
+        let (s_input_request, r_input_request) = channel::<VMInputRequest>();
+        let (s_pause, r_pause) = channel::<()>();
+        self.vm_pauser = Some(s_pause);
+        self.vm_input_request = Some(r_input_request);
+        let breaks_mic = self.breaks_mic.clone();
+        let breaks_mac = self.breaks_mac.clone();
+        let vm_ptr = Arc::clone(&self.vm);
+        self.vm_busy = Some(Promise::spawn_thread("execute", move || {
+            let res = vm_ptr.lock().unwrap().execute(
+                execution_type,
+                VMExecutionInfo {
+                    r_pause,
+                    s_input_request,
+                    breaks_mic,
+                    breaks_mac,
+                },
+            );
+            Ok(VMTask::Execute(res))
+        }));
     }
 
     fn send_input_response(&mut self, inp: VMInputResponse) {
-        match self.vm.handle_input(inp) {
-            Ok(res) => {
-                if let Some(res) = res {
-                    self.handle_response(res);
-                }
-                self.input_modal_type = None;
-                self.input_modal_text = String::new();
-                self.input_model_error = String::new();
-            }
-            Err(err) => {
-                self.input_model_error = err.to_string();
-            }
-        }
+        let request = self.input_modal_request.as_ref().expect("Tentativa de enviar entrada não requisitada");
+        let (s_validation, r_validation) = channel();
+        self.vm_input_validation = Some(r_validation);
+        request.sender.send((inp, s_validation)).expect("Tentativa de enviar entrada não requisitada");
     }
 
     ////////////
@@ -233,51 +289,56 @@ impl MyApp {
         self.msg_modal_open = true;
     }
 
-    fn handle_input_request(&mut self, request_type: VMInputRequest) {
-        self.input_modal_type = Some(request_type);
-        self.input_modal_text = String::new();
-    }
-    fn input_request_ui(&mut self, ui: &mut egui::Ui, request_type: &VMInputRequest) {
-        ui.vertical(|ui| {
-            ui.label(match request_type {
-                VMInputRequest::Int => "Digite um número:",
-                VMInputRequest::Char => "Digite um caractere:",
-                VMInputRequest::String => "Digite um texto:",
+    fn input_request_ui(&mut self, ui: &mut egui::Ui) {
+        if let Some(request_type) = self.input_modal_request.as_ref().map(|r| r.typ.clone()) {
+            egui::Modal::new(egui::Id::new("Input modal")).show(ui, |ui| {
+                ui.set_width(300.0);
+                ui.heading("Entrada");
+                ui.vertical(|ui| {
+                    ui.label(match request_type {
+                        VMInputRequestType::Int => "Digite um número:",
+                        VMInputRequestType::Char => "Digite um caractere:",
+                        VMInputRequestType::String => "Digite um texto:",
+                    });
+                    ui.add(egui::TextEdit::singleline(&mut self.input_modal_text));
+                    ui.colored_label(Color32::RED, self.input_model_error.clone());
+                    if ui.button("Enviar").clicked() {
+                        match request_type {
+                            VMInputRequestType::Int => {
+                                if let Ok(n) = self.input_modal_text.parse::<isize>() {
+                                    self.send_input_response(VMInputResponse::Int(n));
+                                } else {
+                                    self.input_model_error = "Número inválido".to_string();
+                                }
+                            }
+                            VMInputRequestType::Char => {
+                                if self.input_modal_text.len() == 1
+                                    && self.input_modal_text.is_ascii()
+                                {
+                                    self.send_input_response(VMInputResponse::Char(
+                                        self.input_modal_text.chars().next().unwrap(),
+                                    ));
+                                } else {
+                                    self.input_model_error =
+                                        "Deve haver apenas um caractere ASCII".to_string();
+                                }
+                            }
+                            VMInputRequestType::String => {
+                                if self.input_modal_text.is_ascii() {
+                                    self.send_input_response(VMInputResponse::String(
+                                        self.input_modal_text.clone(),
+                                    ));
+                                } else {
+                                    self.input_model_error =
+                                        "Todos os carateres precisam ser do padrão ASCII"
+                                            .to_string();
+                                }
+                            }
+                        }
+                    }
+                });
             });
-            ui.add(egui::TextEdit::singleline(&mut self.input_modal_text));
-            ui.colored_label(Color32::RED, self.input_model_error.clone());
-            if ui.button("Enviar").clicked() {
-                match request_type {
-                    VMInputRequest::Int => {
-                        if let Ok(n) = self.input_modal_text.parse::<isize>() {
-                            self.send_input_response(VMInputResponse::Int(n));
-                        } else {
-                            self.input_model_error = "Número inválido".to_string();
-                        }
-                    }
-                    VMInputRequest::Char => {
-                        if self.input_modal_text.len() == 1 && self.input_modal_text.is_ascii() {
-                            self.send_input_response(VMInputResponse::Char(
-                                self.input_modal_text.chars().next().unwrap(),
-                            ));
-                        } else {
-                            self.input_model_error =
-                                "Deve haver apenas um caractere ASCII".to_string();
-                        }
-                    }
-                    VMInputRequest::String => {
-                        if self.input_modal_text.is_ascii() {
-                            self.send_input_response(VMInputResponse::String(
-                                self.input_modal_text.clone(),
-                            ));
-                        } else {
-                            self.input_model_error =
-                                "Todos os carateres precisam ser do padrão ASCII".to_string();
-                        }
-                    }
-                }
-            }
-        });
+        }
     }
 
     fn side_panel_ui(&mut self, ui: &mut egui::Ui) {
@@ -285,12 +346,12 @@ impl MyApp {
             .resolve(ui.style())
             .size
             .max(ui.spacing().interact_size.y);
-        if self.vm.is_ready() {
+        if !self.microinstructions.is_empty() {
             ui.horizontal(|ui| {
                 if ui.button("Resetar").clicked() {
                     self.reset_vm();
                 }
-                ui.add_enabled_ui(self.vm.is_active(), |ui| {
+                ui.add_enabled_ui(self.last_res.state != VMState::Halted, |ui| {
                     if ui.button("Próxima microinstrução").clicked() {
                         self.execute(VMExecutionType::Microinstruction);
                     }
@@ -301,8 +362,8 @@ impl MyApp {
             });
         };
         ui.separator();
-        if self.vm.is_ready() {
-            let mir = &self.vm.microinstructions()[self.selected].mir;
+        if !self.microinstructions.is_empty() {
+            let mir = &self.microinstructions[self.selected].mir;
             ui.set_min_width(50.0);
             ui.strong("Registrador de Microinstrução:");
             let mir_vals = mir.to_array();
@@ -338,7 +399,7 @@ impl MyApp {
                 });
         }
         ui.strong("Registradores:");
-        let (mar, mbr, registers) = self.vm.registers();
+        let (mar, mbr, registers) = self.last_res.registers;
         let reg_table = TableBuilder::new(ui)
             .auto_shrink([true; 2])
             .id_salt("reg_table")
@@ -363,7 +424,7 @@ impl MyApp {
             })
             .body(|mut body| {
                 body.row(text_height, |mut row| {
-                    row.set_selected(self.vm.events().mar_written.is_some());
+                    row.set_selected(self.last_res.events.mar_written.is_some());
                     row.col(|ui| {
                         ui.label("");
                     });
@@ -372,7 +433,7 @@ impl MyApp {
                     });
                     row.col(|ui| {
                         let label = egui::Label::new(self.format_value(mar as usize));
-                        if let Some(event) = &self.vm.events().mar_written {
+                        if let Some(event) = &self.last_res.events.mar_written {
                             ui.add(label).on_hover_text(format!(
                                 "Anterior: {}",
                                 self.format_value(event.before as usize)
@@ -383,7 +444,7 @@ impl MyApp {
                     });
                 });
                 body.row(text_height, |mut row| {
-                    row.set_selected(self.vm.events().mbr_written.is_some());
+                    row.set_selected(self.last_res.events.mbr_written.is_some());
                     row.col(|ui| {
                         ui.label("");
                     });
@@ -392,7 +453,7 @@ impl MyApp {
                     });
                     row.col(|ui| {
                         let label = egui::Label::new(self.format_value(mbr as usize));
-                        if let Some(event) = &self.vm.events().mbr_written {
+                        if let Some(event) = &self.last_res.events.mbr_written {
                             ui.add(label).on_hover_text(format!(
                                 "Anterior: {}",
                                 self.format_value(event.before as usize)
@@ -406,8 +467,8 @@ impl MyApp {
                     let row_index = row.index();
                     let reg_name = Registers::NAMES.get(row_index).map_or("", |v| v);
                     if self
-                        .vm
-                        .events()
+                        .last_res
+                        .events
                         .register_writes
                         .contains_key(&(row_index as u8))
                     {
@@ -442,7 +503,7 @@ impl MyApp {
                         if let Some(hover) = hover {
                             ui.add(label).on_hover_text(hover);
                         } else if let Some(event) =
-                            &self.vm.events().register_writes.get(&(row_index as u8))
+                            &self.last_res.events.register_writes.get(&(row_index as u8))
                         {
                             ui.add(label).on_hover_text(format!(
                                 "Anterior: {}",
@@ -486,9 +547,9 @@ impl MyApp {
     }
 
     fn stdout_ui(&mut self, ui: &mut egui::Ui) {
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.monospace(self.vm.stdout());
-        });
+        // egui::ScrollArea::vertical().show(ui, |ui| {
+        //     ui.monospace(&self.last_res.stdout);
+        // });
     }
 
     fn mem_table_ui(&mut self, ui: &mut egui::Ui) {
@@ -496,7 +557,7 @@ impl MyApp {
             self.mem_view_index = goto.get_slot();
             self.last_mem_goto = goto;
         }
-        let memory = self.vm.memory();
+        let memory = &self.memory;
         let text_height = egui::TextStyle::Body
             .resolve(ui.style())
             .size
@@ -538,8 +599,8 @@ impl MyApp {
                             ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
                             let mem_slot = row_index + i;
                             let before = self
-                                .vm
-                                .events()
+                                .last_res
+                                .events
                                 .memory_writes
                                 .get(&(mem_slot as u16))
                                 .map(|v| v.before);
@@ -608,7 +669,7 @@ impl MyApp {
     }
 
     fn instruction_table_ui(&mut self, ui: &mut egui::Ui) {
-        if !self.vm.microinstructions().is_empty() {
+        if !self.microinstructions.is_empty() {
             egui::ScrollArea::vertical()
                 .auto_shrink([false; 2])
                 .show(ui, |ui| {
@@ -647,7 +708,7 @@ impl MyApp {
             .size
             .max(ui.spacing().interact_size.y);
         let available_height = ui.available_height();
-        if !self.vm.instructions().is_empty() {
+        if !self.instructions.is_empty() {
             let mut asm_table = TableBuilder::new(ui)
                 .striped(true)
                 .resizable(false)
@@ -659,7 +720,7 @@ impl MyApp {
             if let Some(pc) = self.scroll_pc.take() {
                 asm_table = asm_table.scroll_to_row(pc, None);
             }
-            let ins = self.vm.instructions();
+            let ins = &self.instructions;
             asm_table.body(|body| {
                 body.rows(text_height, ins.len(), |mut row| {
                     let row_index = row.index();
@@ -702,7 +763,7 @@ impl MyApp {
             .size
             .max(ui.spacing().interact_size.y);
         let available_height = ui.available_height();
-        if !self.vm.microinstructions().is_empty() {
+        if !self.microinstructions.is_empty() {
             let mut mal_table = TableBuilder::new(ui)
                 .striped(true)
                 .resizable(false)
@@ -715,13 +776,15 @@ impl MyApp {
             if let Some(mpc) = self.scroll_mpc.take() {
                 mal_table = mal_table.scroll_to_row(mpc, None);
             }
-            let mics = self.vm.microinstructions();
+            let mics = &self.microinstructions;
+            let mpc = self.last_res.mpc;
+            let prev_mpc = self.last_res.prev_mpc;
             mal_table.body(|body| {
                 body.rows(text_height, mics.len(), |mut row| {
                     let row_index = row.index();
                     row.set_selected(row_index == self.selected);
                     row.col(|ui| {
-                        if row_index == self.mpc {
+                        if row_index == mpc {
                             ui.strong(row_index.to_string());
                         } else {
                             ui.label(row_index.to_string());
@@ -732,10 +795,10 @@ impl MyApp {
                             .get(row_index)
                             .map(|v| v.content.as_str())
                             .unwrap_or("");
-                        if row_index == self.mpc {
+                        if row_index == mpc {
                             ui.label(egui::RichText::new(text).monospace().strong())
                                 .on_hover_text("Próxima microinstrução");
-                        } else if row_index == self.prev_mpc {
+                        } else if row_index == prev_mpc {
                             ui.label(egui::RichText::new(text).monospace().strong())
                                 .on_hover_text("Microinstrução executada");
                         } else {
@@ -824,4 +887,10 @@ impl Display for MemGoto {
             }
         )
     }
+}
+
+enum VMTask {
+    Execute(VMResponse),
+    AssembleMac(Vec<Instruction>),
+    AssembleMic(Vec<Microinstruction>),
 }
