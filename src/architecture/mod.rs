@@ -12,6 +12,7 @@ use memory::Memory;
 
 use crate::architecture::{datapath::RegisterBank, events::EventHandler};
 
+#[derive(Debug)]
 pub struct Cpu {
     datapath: Datapath,
     control_unit: ControlUnit,

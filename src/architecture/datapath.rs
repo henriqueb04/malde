@@ -5,6 +5,7 @@ use crate::architecture::{
 
 pub type RegisterBank = [u16; 16];
 
+#[derive(Debug)]
 pub struct Datapath {
     bus_a: u16,
     bus_b: u16,

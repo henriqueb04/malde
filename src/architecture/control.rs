@@ -5,7 +5,7 @@ use crate::architecture::signals::{ALUSignals, ControlSignals};
 
 const MICROMEM_MAX_SIZE: usize = 1 << 10;
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct MicroMem {
     pub microinstructions: Vec<u64>,
     pub len: usize,
@@ -35,6 +35,7 @@ impl MicroMem {
     }
 }
 
+#[derive(Debug)]
 pub struct ControlUnit {
     pub signals: ControlSignals,
     pub micro_mem: Arc<Mutex<MicroMem>>,

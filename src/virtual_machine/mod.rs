@@ -2,6 +2,7 @@ use thiserror::Error;
 
 use std::{
     collections::HashSet,
+    fmt::Debug,
     mem::discriminant,
     sync::{
         Arc, Mutex,
@@ -40,14 +41,11 @@ pub struct VM {
     instructions: Vec<Instruction>,
     microinstructions: Vec<Microinstruction>,
     events: EventHandler,
+    pc: usize,
+    prev_pc: usize,
     stdout: String,
+    on_print: Option<Box<dyn Fn(String) + Send>>,
     // cur_instruction: usize,
-}
-
-impl Default for VM {
-    fn default() -> Self {
-        VM::new()
-    }
 }
 
 impl VM {
@@ -65,7 +63,10 @@ impl VM {
             instructions: Vec::new(),
             initial_memory: None,
             events: EventHandler::default(),
+            pc: 0,
+            prev_pc: 0,
             stdout: String::new(),
+            on_print: None,
         }
     }
 
@@ -155,9 +156,18 @@ impl VM {
     pub fn instructions(&self) -> &Vec<Instruction> {
         &self.instructions
     }
+    pub fn state(&self) -> &VMState {
+        &self.state
+    }
 
+    pub fn set_on_print(&mut self, on_print: Box<dyn Fn(String) + Send>) {
+        self.on_print = Some(on_print);
+    }
     fn print_to_stdout(&mut self, s: &str) {
         self.stdout.push_str(s);
+        if let Some(on_print) = &self.on_print {
+            (on_print)(s.to_string());
+        }
         print!("{}", s);
     }
 
@@ -201,6 +211,8 @@ impl VM {
         VMResponse {
             mpc: r.0,
             prev_mpc: r.1,
+            pc: self.pc,
+            prev_pc: self.prev_pc,
             events: self.events.clone(),
             state: self.state.clone(),
             registers: self.registers().clone(),
@@ -211,6 +223,14 @@ impl VM {
         while self.state == VMState::Active {
             self.events.instruction_reads.clear();
             res = self.advance_microinstruction(execution_info);
+            if let Some(pc) = self.events.instruction_reads.iter().next()
+                && execution_info.breaks_mac.contains(&(*pc as usize))
+            {
+                break;
+            }
+            if execution_info.breaks_mic.contains(&res.0) {
+                break;
+            }
             if execution_info.r_pause.try_recv().is_ok() {
                 break;
             }
@@ -224,27 +244,28 @@ impl VM {
                 if self.microinstructions()[prev_mpc].mir.syscall
                     && let Some(input_request) = self.execute_syscall()
                 {
-                    let (input_s, input_r) =
-                        channel::<(VMInputResponse, Sender<Result<(), String>>)>();
-                    execution_info
-                        .s_input_request
-                        .send(VMInputRequest {
-                            typ: input_request,
-                            sender: input_s,
-                        })
-                        .expect("Não foi possível requisitar entrada");
-                    let mut valid = Err(String::new());
-                    while valid.is_err() {
-                        let (input, validation_s) = match input_r.recv() {
-                            Ok(a) => a,
-                            Err(err) => panic!("Entrada requisitada, mas não recebida: {}", err),
-                        };
-                        valid = self.handle_input(input).map_err(|err| err.to_string());
-                        validation_s
-                            .send(valid.clone())
-                            .expect("Não foi possível validar entrada");
+                    let (input_s, input_r) = channel::<VMInputResponse>();
+                    (execution_info.on_input_request)(VMInputRequest {
+                        typ: input_request,
+                        sender: input_s,
+                    });
+                    loop {
+                        let input = input_r
+                            .recv()
+                            .expect("Entrada requisitada, mas não recebida");
+                        match self.handle_input(input).map_err(|err| err.to_string()) {
+                            Ok(..) => {
+                                (execution_info.on_validation)(Ok(()));
+                                break;
+                            }
+                            Err(err) => (execution_info.on_validation)(Err(err.to_string())),
+                        }
                     }
                 };
+                if let Some(read_event) = self.events.instruction_reads.iter().next() {
+                    self.prev_pc = self.pc;
+                    self.pc = *read_event as usize;
+                }
                 (mpc, prev_mpc)
             }
             _ => Default::default(),
@@ -254,6 +275,9 @@ impl VM {
         let mut res = (0, 0);
         while self.events.instruction_reads.is_empty() && self.state == VMState::Active {
             res = self.advance_microinstruction(execution_info);
+            if execution_info.breaks_mic.contains(&res.0) {
+                break;
+            }
             if execution_info.r_pause.try_recv().is_ok() {
                 break;
             }
@@ -342,6 +366,18 @@ impl VM {
     }
 }
 
+impl Debug for VM {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VM")
+            .field("state", &self.state)
+            .field("execution_type", &self.execution_type)
+            .field("cpu", &self.cpu)
+            .field("events", &self.events)
+            .field("stdout", &self.stdout)
+            .finish()
+    }
+}
+
 pub struct Syscalls;
 impl Syscalls {
     pub const PRINT_INT: u16 = 1;
@@ -373,6 +409,8 @@ pub enum VMInputResponse {
 pub struct VMResponse {
     pub mpc: usize,
     pub prev_mpc: usize,
+    pub pc: usize,
+    pub prev_pc: usize,
     pub events: EventHandler,
     pub state: VMState,
     pub registers: (u16, u16, RegisterBank),
@@ -394,14 +432,16 @@ pub enum VMExecutionType {
     Microinstruction,
 }
 
+#[derive(Debug)]
 pub struct VMInputRequest {
     pub typ: VMInputRequestType,
-    pub sender: Sender<(VMInputResponse, Sender<Result<(), String>>)>,
+    pub sender: Sender<VMInputResponse>,
 }
 
 pub struct VMExecutionInfo {
     pub r_pause: Receiver<()>,
-    pub s_input_request: Sender<VMInputRequest>,
+    pub on_input_request: Box<dyn Fn(VMInputRequest) + Send>,
+    pub on_validation: Box<dyn Fn(Result<(), String>) + Send>,
     pub breaks_mic: HashSet<usize>,
     pub breaks_mac: HashSet<usize>,
 }

@@ -7,6 +7,8 @@ pub const DATA_SEGMENT_START: usize = 1536;
 pub const TEXT_SEGMENT_START: usize = 0;
 
 pub const MEMORY_SIZE: usize = 1 << 12;
+
+#[derive(Debug)]
 pub struct Memory {
     rd_clock_count: u8,
     wr_clock_count: u8,

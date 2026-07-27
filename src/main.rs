@@ -5,19 +5,15 @@ mod parsers;
 mod virtual_machine;
 
 use std::{
-    collections::HashSet,
     fmt::Display,
     fs,
-    sync::{
-        Arc, Mutex,
-        mpsc::{Receiver, Sender, channel},
-    },
+    sync::mpsc::{Sender, channel},
 };
 
 use eframe::egui::{self, Color32};
 use egui_extras::{Column, TableBuilder};
+use egui_inbox::UiInbox;
 use log::{debug, error};
-use poll_promise::Promise;
 
 use crate::{
     architecture::signals::CONTROL_SIGNAL_NAMES,
@@ -43,27 +39,26 @@ fn main() -> eframe::Result {
 
 #[derive(Default)]
 pub struct MyApp {
-    vm: Arc<Mutex<VM>>,
-    vm_busy: Option<Promise<Result<VMTask, String>>>,
-    vm_input_request: Option<Receiver<VMInputRequest>>,
-    vm_input_validation: Option<Receiver<Result<(), String>>>,
+    vm: Option<VM>,
+    task_inbox: UiInbox<(Result<VMTask, String>, VM)>,
+    vm_input_request: Option<(UiInbox<VMInputRequest>, UiInbox<Result<(), String>>)>,
     vm_pauser: Option<Sender<()>>,
     memory: Vec<u16>,
+    stdout_inbox: UiInbox<String>,
+    stdout: String,
     input_modal_request: Option<VMInputRequest>,
     input_modal_text: String,
     input_model_error: String,
     last_res: VMResponse,
     instructions: Vec<Instruction>,
     microinstructions: Vec<Microinstruction>,
-    breaks_mic: HashSet<usize>,
-    breaks_mac: HashSet<usize>,
+    breaks_mic: Vec<bool>,
+    breaks_mac: Vec<bool>,
     macroprogram: Option<String>,
     microprogram: Option<String>,
     msg_modal_text: Option<String>,
     value_format: ValueFormatType,
     scroll_mpc: Option<usize>,
-    prev_pc: usize,
-    pc: usize,
     scroll_pc: Option<usize>,
     selected: usize,
     mem_view_index: usize,
@@ -75,48 +70,104 @@ pub struct MyApp {
 
 impl eframe::App for MyApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // Channels and signals
+        for text in self.stdout_inbox.read(ui) {
+            self.print_to_stdout(&text);
+        }
+        for task in self.task_inbox.read(ui) {
+            match task.0 {
+                Ok(task) => match task {
+                    VMTask::Execute(res) => {
+                        self.scroll_mpc = Some(res.mpc);
+                        self.selected = res.mpc;
+                        self.last_res = res;
+                        if let Some(pc) = self.last_res.events.instruction_reads.iter().next() {
+                            self.scroll_pc = Some(*pc as usize);
+                        }
+                    }
+                    VMTask::AssembleMic(mics) => {
+                        self.microinstructions = mics;
+                        self.breaks_mic.fill(false);
+                        self.breaks_mic.resize(self.microinstructions.len(), false);
+                    }
+                    VMTask::AssembleMac(ins) => {
+                        self.instructions = ins;
+                        self.breaks_mac.fill(false);
+                        self.breaks_mac.resize(self.instructions.len(), false);
+                    }
+                },
+                Err(err) => {
+                    self.show_error_modal(err.clone());
+                }
+            }
+            self.vm = Some(task.1);
+            self.memory = Vec::from(self.vm.as_ref().unwrap().memory());
+        }
+        if let Some(input_request) = &self.vm_input_request {
+            for input_validation in input_request.1.read(ui) {
+                match input_validation {
+                    Ok(..) => {
+                        self.input_modal_request = None;
+                        self.input_modal_text.clear();
+                        self.input_model_error.clear();
+                    }
+                    Err(err) => {
+                        self.input_model_error = err;
+                    }
+                }
+            }
+            for input_request in input_request.0.read(ui) {
+                self.input_modal_request = Some(input_request);
+            }
+        }
+
+        // UI
         egui::Panel::right("right_panel")
             .resizable(true)
             .default_size(350.0)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 self.side_panel_ui(ui);
             });
         egui::Panel::bottom("bottom_panel")
             .resizable(true)
             .default_size(440.0)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 self.bottom_panel_ui(ui);
             });
-        egui::CentralPanel::default().show_inside(ui, |ui| {
-            ui.horizontal(|ui| {
-                if ui.button("Carregar arquivo MAC").clicked()
-                    && let Some(path) = rfd::FileDialog::new().pick_file()
-                {
-                    debug!("Macroprograma: {}", path.display());
-                    self.macroprogram = Some(path.display().to_string());
-                }
-                ui.label(self.macroprogram.as_deref().unwrap_or(""));
-            });
-            ui.horizontal(|ui| {
-                if ui.button("Carregar arquivo MAL").clicked()
-                    && let Some(path) = rfd::FileDialog::new().pick_file()
-                {
-                    debug!("Microprograma: {}", path.display());
-                    self.microprogram = Some(path.display().to_string());
-                }
-                ui.label(self.microprogram.as_deref().unwrap_or(""));
-            });
-            ui.horizontal(|ui| {
-                if let Some(micro_path) = self.microprogram.clone()
-                    && ui.button("🔧 Montar Microprograma").clicked()
-                {
-                    self.assemble_micro(micro_path.as_str());
-                }
-                if let Some(macro_path) = self.macroprogram.clone()
-                    && ui.button("🔧 Montar Macroprograma").clicked()
-                {
-                    self.assemble_macro(macro_path.as_str());
-                }
+        egui::CentralPanel::default().show(ui, |ui| {
+            egui::Grid::new("files_grid")
+                .num_columns(2)
+                .spacing([10.0, 4.0])
+                .show(ui, |ui| {
+                    if ui.button("Carregar arquivo Assembly").clicked()
+                        && let Some(path) = rfd::FileDialog::new().pick_file()
+                    {
+                        debug!("Macroprograma: {}", path.display());
+                        self.macroprogram = Some(path.display().to_string());
+                    }
+                    ui.label(self.macroprogram.as_deref().unwrap_or(""));
+                    ui.end_row();
+                    if ui.button("Carregar arquivo MAL").clicked()
+                        && let Some(path) = rfd::FileDialog::new().pick_file()
+                    {
+                        debug!("Microprograma: {}", path.display());
+                        self.microprogram = Some(path.display().to_string());
+                    }
+                    ui.label(self.microprogram.as_deref().unwrap_or(""));
+                });
+            ui.add_enabled_ui(self.vm.is_some(), |ui| {
+                ui.horizontal(|ui| {
+                    if let Some(micro_path) = self.microprogram.clone()
+                        && ui.button("🔧 Montar Microprograma").clicked()
+                    {
+                        self.assemble_micro(micro_path.as_str());
+                    }
+                    if let Some(macro_path) = self.macroprogram.clone()
+                        && ui.button("🔧 Montar Macroprograma").clicked()
+                    {
+                        self.assemble_macro(macro_path.as_str());
+                    }
+                });
             });
             ui.separator();
             self.instruction_table_ui(ui);
@@ -141,127 +192,131 @@ impl eframe::App for MyApp {
             }
         }
         self.input_request_ui(ui);
-        if let Some(Ok(input_validation)) = self.vm_input_validation.as_ref().map(|o| o.try_recv())
-        {
-            match input_validation {
-                Ok(..) => {
-                    self.input_modal_request = None;
-                    self.vm_input_validation = None;
-                    self.input_modal_text.clear();
-                    self.input_model_error.clear();
-                }
-                Err(err) => {
-                    self.input_model_error = err;
-                }
-            }
-        }
-        if let Some(Ok(input_request)) = self.vm_input_request.as_ref().map(|o| o.try_recv()) {
-            self.input_modal_request = Some(input_request);
-        }
-        if let Some(vm_task) = self.vm_busy.as_ref()
-            && let Some(vm_task) = vm_task.ready()
-        {
-            match vm_task {
-                Ok(task) => match task {
-                    VMTask::Execute(res) => {
-                        self.scroll_mpc = Some(res.mpc);
-                        self.selected = res.mpc;
-                        self.last_res = res.clone();
-                        if let Some(pc) = self.last_res.events.instruction_reads.iter().next() {
-                            self.prev_pc = self.pc;
-                            self.pc = *pc as usize;
-                            self.scroll_pc = Some(self.pc);
-                        }
-                    }
-                    VMTask::AssembleMic(mics) => {
-                        self.microinstructions = mics.clone();
-                    }
-                    VMTask::AssembleMac(ins) => {
-                        self.instructions = ins.clone();
-                    }
-                },
-                Err(err) => {
-                    self.show_error_modal(err.clone());
-                }
-            }
-            self.vm_busy = None;
-            self.memory = Vec::from(self.vm.lock().unwrap().memory());
-        }
     }
 }
 
 impl MyApp {
     fn new() -> Self {
-        MyApp {
+        let mut vm = VM::new();
+        let stdout_inbox = UiInbox::new();
+        let s_stdout = stdout_inbox.sender();
+        vm.set_on_print(Box::new(move |text| {
+            s_stdout.send(text).expect("Erro ao exibir saída")
+        }));
+        let app = MyApp {
             // FIXME: retirar caminhos fixos
             macroprogram: Some(String::from("/home/henrique/code/mac1/teste3.asm")),
             microprogram: Some(String::from("/home/henrique/code/mac1/malde.mal")),
-            vm: Arc::new(Mutex::new(VM::new())),
+            vm: Some(vm),
             mem_goto: Some(MemGoto::Data),
+            stdout_inbox,
+            // FIXME
+            stdout: "teste".to_string(),
             ..Default::default()
-        }
+        };
+        app
     }
     fn assemble_micro(&mut self, path: &str) {
-        let vm_ptr = Arc::clone(&self.vm);
-        let path = path.to_string();
-        self.vm_busy = Some(Promise::spawn_thread(
-            "assemble_micro",
-            move || -> Result<VMTask, String> {
-                let contents = fs::read_to_string(&path).map_err(|err| err.to_string())?;
-                let mics = vm_ptr
-                    .lock()
-                    .unwrap()
-                    .assemble_mic(&contents)
-                    .map_err(|err| err.to_string())?;
-                Ok(VMTask::AssembleMic(mics))
-            },
-        ));
+        if let Some(mut vm) = self.vm.take() {
+            self.task_inbox = UiInbox::new();
+            let s_task = self.task_inbox.sender();
+            let path = path.to_string();
+            std::thread::spawn(move || {
+                s_task
+                    .send((
+                        (|vm: &mut VM| {
+                            let contents =
+                                fs::read_to_string(&path).map_err(|err| err.to_string())?;
+                            let mics = vm.assemble_mic(&contents).map_err(|err| err.to_string())?;
+                            Ok(VMTask::AssembleMic(mics))
+                        })(&mut vm),
+                        vm,
+                    ))
+                    .expect("Resposta assícrona falhou");
+            });
+        }
     }
     fn assemble_macro(&mut self, path: &str) {
-        let vm_ptr = Arc::clone(&self.vm);
-        let path = path.to_string();
-        self.vm_busy = Some(Promise::spawn_thread(
-            "assemble_macro",
-            move || -> Result<VMTask, String> {
-                let source_map = SourceMap::from_filepath(&path)
-                    .map_err(|err| format!("Falha ao ler arquivo: {}", err))?;
-                let ins = vm_ptr
-                    .lock()
-                    .unwrap()
-                    .assemble_mac(&source_map)
-                    .map_err(|err| err.to_string())?;
-                Ok(VMTask::AssembleMac(ins))
-            },
-        ));
+        if let Some(mut vm) = self.vm.take() {
+            self.task_inbox = UiInbox::new();
+            let s_task = self.task_inbox.sender();
+            let path = path.to_string();
+            std::thread::spawn(move || {
+                s_task
+                    .send((
+                        (|vm: &mut VM| {
+                            let source_map = SourceMap::from_filepath(&path)
+                                .map_err(|err| format!("Falha ao ler arquivo: {}", err))?;
+                            let ins = vm
+                                .assemble_mac(&source_map)
+                                .map_err(|err| err.to_string())?;
+                            Ok(VMTask::AssembleMac(ins))
+                        })(&mut vm),
+                        vm,
+                    ))
+                    .expect("Resposta assícrona falhou");
+            });
+        }
     }
     fn reset_vm(&mut self) {
-        self.vm.lock().unwrap().reset();
-        self.memory = self.vm.lock().unwrap().memory().into();
-        self.selected = 0;
-        self.last_res.mpc = 0;
-        self.last_res.prev_mpc = 0;
+        if let Some(vm) = &mut self.vm {
+            vm.reset();
+            self.memory = vm.memory().into();
+            self.selected = 0;
+            self.last_res.mpc = 0;
+            self.last_res.prev_mpc = 0;
+        }
     }
 
     fn execute(&mut self, execution_type: VMExecutionType) {
-        let (s_input_request, r_input_request) = channel::<VMInputRequest>();
+        let request_inbox = UiInbox::new();
+        let s_request = request_inbox.sender();
+        let validation_inbox = UiInbox::new();
+        let s_validation = validation_inbox.sender();
+        self.vm_input_request = Some((request_inbox, validation_inbox));
         let (s_pause, r_pause) = channel::<()>();
         self.vm_pauser = Some(s_pause);
-        self.vm_input_request = Some(r_input_request);
-        let breaks_mic = self.breaks_mic.clone();
-        let breaks_mac = self.breaks_mac.clone();
-        let vm_ptr = Arc::clone(&self.vm);
-        self.vm_busy = Some(Promise::spawn_thread("execute", move || {
-            let res = vm_ptr.lock().unwrap().execute(
-                execution_type,
-                VMExecutionInfo {
-                    r_pause,
-                    s_input_request,
-                    breaks_mic,
-                    breaks_mac,
-                },
-            );
-            Ok(VMTask::Execute(res))
-        }));
+        let breaks_mic = self
+            .breaks_mic
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| **v)
+            .map(|(i, _)| i)
+            .collect();
+        let breaks_mac = self
+            .breaks_mac
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| **v)
+            .map(|(i, _)| i)
+            .collect();
+        if let Some(mut vm) = self.vm.take() {
+            self.task_inbox = UiInbox::new();
+            let s_task = self.task_inbox.sender();
+            std::thread::spawn(move || {
+                let res = vm.execute(
+                    execution_type,
+                    VMExecutionInfo {
+                        r_pause,
+                        on_input_request: Box::new(move |req| {
+                            s_request
+                                .send(req)
+                                .expect("Não foi possível requisitar entrada");
+                        }),
+                        on_validation: Box::new(move |val| {
+                            s_validation
+                                .send(val)
+                                .expect("Não foi possível validar entrada");
+                        }),
+                        breaks_mic,
+                        breaks_mac,
+                    },
+                );
+                s_task
+                    .send((Ok(VMTask::Execute(res)), vm))
+                    .expect("Resposta assícrona falhou");
+            });
+        }
     }
     fn pause(&mut self) {
         if let Some(pause_s) = &self.vm_pauser {
@@ -274,12 +329,14 @@ impl MyApp {
             .input_modal_request
             .as_ref()
             .expect("Tentativa de enviar entrada não requisitada");
-        let (s_validation, r_validation) = channel();
-        self.vm_input_validation = Some(r_validation);
         request
             .sender
-            .send((inp, s_validation))
+            .send(inp)
             .expect("Tentativa de enviar entrada não requisitada");
+    }
+
+    fn print_to_stdout(&mut self, text: &str) {
+        self.stdout.push_str(text);
     }
 
     ////////////
@@ -356,21 +413,28 @@ impl MyApp {
             .resolve(ui.style())
             .size
             .max(ui.spacing().interact_size.y);
+        let state = self
+            .vm
+            .as_ref()
+            .map(|vm| vm.state().clone())
+            .unwrap_or_else(|| self.last_res.state.clone());
         if !self.microinstructions.is_empty() {
             ui.horizontal(|ui| {
                 if ui.button("Resetar").clicked() {
                     self.reset_vm();
                 }
-                if self.vm_busy.is_none() {
-                    if ui.button("Executar").clicked() {
-                        self.execute(VMExecutionType::Run);
-                    }
+                if self.vm.is_some() {
+                    ui.add_enabled_ui(state != VMState::Halted, |ui| {
+                        if ui.button("Executar").clicked() {
+                            self.execute(VMExecutionType::Run);
+                        }
+                    });
                 } else {
                     if ui.button("Pausar").clicked() {
                         self.pause();
                     }
                 }
-                ui.add_enabled_ui(self.last_res.state != VMState::Halted, |ui| {
+                ui.add_enabled_ui(state != VMState::Halted, |ui| {
                     if ui.button("Próxima microinstrução").clicked() {
                         self.execute(VMExecutionType::Microinstruction);
                     }
@@ -566,9 +630,9 @@ impl MyApp {
     }
 
     fn stdout_ui(&mut self, ui: &mut egui::Ui) {
-        // egui::ScrollArea::vertical().show(ui, |ui| {
-        //     ui.monospace(&self.last_res.stdout);
-        // });
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            ui.monospace(&self.stdout);
+        });
     }
 
     fn mem_table_ui(&mut self, ui: &mut egui::Ui) {
@@ -733,6 +797,7 @@ impl MyApp {
                 .resizable(false)
                 .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
                 .column(Column::auto())
+                .column(Column::auto())
                 .column(Column::remainder().clip(true))
                 .min_scrolled_height(0.0)
                 .max_scroll_height(available_height);
@@ -743,9 +808,13 @@ impl MyApp {
             asm_table.body(|body| {
                 body.rows(text_height, ins.len(), |mut row| {
                     let row_index = row.index();
-                    row.set_selected(row_index == self.pc);
+                    row.set_selected(row_index == self.last_res.pc);
                     row.col(|ui| {
-                        if row_index == self.pc {
+                        ui.checkbox(&mut self.breaks_mac[row_index], "")
+                            .on_hover_text("Breakpoint");
+                    });
+                    row.col(|ui| {
+                        if row_index == self.last_res.pc {
                             ui.strong(row_index.to_string());
                         } else {
                             ui.label(row_index.to_string());
@@ -757,9 +826,9 @@ impl MyApp {
                             .map(|i| (i.content.as_str(), i.bin.as_str()))
                             .unwrap_or(("", ""));
                         let rich_text = egui::RichText::new(text).monospace();
-                        let hover_add = if row_index == self.pc {
+                        let hover_add = if row_index == self.last_res.pc {
                             Some("Próxima instrução")
-                        } else if row_index == self.prev_pc {
+                        } else if row_index == self.last_res.prev_pc {
                             Some("Instrução executada")
                         } else {
                             None
@@ -788,6 +857,7 @@ impl MyApp {
                 .resizable(false)
                 .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
                 .column(Column::auto())
+                .column(Column::auto())
                 .column(Column::remainder().clip(true))
                 .min_scrolled_height(0.0)
                 .max_scroll_height(available_height)
@@ -802,6 +872,10 @@ impl MyApp {
                 body.rows(text_height, mics.len(), |mut row| {
                     let row_index = row.index();
                     row.set_selected(row_index == self.selected);
+                    row.col(|ui| {
+                        ui.checkbox(&mut self.breaks_mic[row_index], "")
+                            .on_hover_text("Breakpoint");
+                    });
                     row.col(|ui| {
                         if row_index == mpc {
                             ui.strong(row_index.to_string());
@@ -908,6 +982,7 @@ impl Display for MemGoto {
     }
 }
 
+#[derive(Debug)]
 enum VMTask {
     Execute(VMResponse),
     AssembleMac(Vec<Instruction>),

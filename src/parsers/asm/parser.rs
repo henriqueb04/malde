@@ -452,7 +452,7 @@ impl Display for ASMParsingError<'_> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct KeywordMap {
     map: HashMap<String, (usize, usize)>,
 }

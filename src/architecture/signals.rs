@@ -36,6 +36,7 @@ fn position_bit(b: &bool, i: u8) -> u64 {
     (*b as u64) << (63 - i)
 }
 
+#[derive(Debug)]
 pub struct ALUSignals {
     pub z: bool,
     pub n: bool,
