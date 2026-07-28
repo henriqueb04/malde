@@ -13,14 +13,14 @@ impl SourceMap {
         Ok(SourceMap {
             filepath: filepath.to_string(),
             line_indices: get_line_indices(&content),
-            content: content,
+            content,
         })
     }
     pub fn from_content(content: &str) -> Self {
         SourceMap {
             filepath: String::new(),
             content: content.to_string(),
-            line_indices: get_line_indices(&content),
+            line_indices: get_line_indices(content),
         }
     }
     pub fn get_span(&self, span: &Span) -> &str {
@@ -60,11 +60,11 @@ impl SourceMap {
         let mut line = self.content[line_start..line_end].to_string();
         line.push('\n');
         line.push_str(
-            " ".repeat((&self.content[line_start..span.start]).len())
+            " ".repeat(self.content[line_start..span.start].len())
                 .as_str(),
         );
         line.push_str(
-            "~".repeat((&self.content[span.start..span.end]).len())
+            "~".repeat(self.content[span.start..span.end].len())
                 .as_str(),
         );
         line

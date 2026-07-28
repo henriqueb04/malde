@@ -42,14 +42,11 @@ impl Cpu {
         (mpc, prev_mpc)
     }
 
-    pub fn mpc(&self) -> &usize {
-        &self.control_unit.mpc
-    }
     pub fn get_registers(&self) -> (u16, u16, RegisterBank) {
         (
             self.datapath.mar,
             self.datapath.mbr,
-            self.datapath.registers().clone(),
+            *self.datapath.registers(),
         )
     }
     pub fn set_register(&mut self, register: usize, value: u16) {

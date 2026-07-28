@@ -215,7 +215,7 @@ impl VM {
             prev_pc: self.prev_pc,
             events: self.events.clone(),
             state: self.state.clone(),
-            registers: self.registers().clone(),
+            registers: self.registers(),
         }
     }
     fn run_all(&mut self, execution_info: &VMExecutionInfo) -> (usize, usize) {

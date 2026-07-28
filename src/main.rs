@@ -41,7 +41,7 @@ fn main() -> eframe::Result {
 pub struct MyApp {
     vm: Option<VM>,
     task_inbox: UiInbox<(Result<VMTask, String>, VM)>,
-    vm_input_request: Option<(UiInbox<VMInputRequest>, UiInbox<Result<(), String>>)>,
+    vm_input_request: Option<UIInputInboxes>,
     vm_pauser: Option<Sender<()>>,
     memory: Vec<u16>,
     stdout_inbox: UiInbox<String>,
@@ -49,7 +49,7 @@ pub struct MyApp {
     input_modal_request: Option<VMInputRequest>,
     input_modal_text: String,
     input_model_error: String,
-    last_res: VMResponse,
+    last_res: Box<VMResponse>,
     instructions: Vec<Instruction>,
     microinstructions: Vec<Microinstruction>,
     breaks_mic: Vec<bool>,
@@ -104,7 +104,7 @@ impl eframe::App for MyApp {
             self.memory = Vec::from(self.vm.as_ref().unwrap().memory());
         }
         if let Some(input_request) = &self.vm_input_request {
-            for input_validation in input_request.1.read(ui) {
+            for input_validation in input_request.validation.read(ui) {
                 match input_validation {
                     Ok(..) => {
                         self.input_modal_request = None;
@@ -116,7 +116,7 @@ impl eframe::App for MyApp {
                     }
                 }
             }
-            for input_request in input_request.0.read(ui) {
+            for input_request in input_request.request.read(ui) {
                 self.input_modal_request = Some(input_request);
             }
         }
@@ -135,37 +135,46 @@ impl eframe::App for MyApp {
                 self.bottom_panel_ui(ui);
             });
         egui::CentralPanel::default().show(ui, |ui| {
-            egui::Grid::new("files_grid")
-                .num_columns(2)
-                .spacing([10.0, 4.0])
-                .show(ui, |ui| {
-                    if ui.button("Carregar arquivo Assembly").clicked()
-                        && let Some(path) = rfd::FileDialog::new().pick_file()
-                    {
-                        debug!("Macroprograma: {}", path.display());
-                        self.macroprogram = Some(path.display().to_string());
-                    }
-                    ui.label(self.macroprogram.as_deref().unwrap_or(""));
-                    ui.end_row();
-                    if ui.button("Carregar arquivo MAL").clicked()
-                        && let Some(path) = rfd::FileDialog::new().pick_file()
-                    {
-                        debug!("Microprograma: {}", path.display());
-                        self.microprogram = Some(path.display().to_string());
-                    }
-                    ui.label(self.microprogram.as_deref().unwrap_or(""));
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    egui::Grid::new("files_grid")
+                        .num_columns(2)
+                        .spacing([10.0, 4.0])
+                        .show(ui, |ui| {
+                            if ui.button("🗁 Carregar arquivo Assembly").clicked()
+                                && let Some(path) = rfd::FileDialog::new().pick_file()
+                            {
+                                debug!("Macroprograma: {}", path.display());
+                                self.macroprogram = Some(path.display().to_string());
+                            }
+                            ui.label(self.macroprogram.as_deref().unwrap_or(""));
+                            ui.end_row();
+                            if ui.button("🗁 Carregar arquivo MAL").clicked()
+                                && let Some(path) = rfd::FileDialog::new().pick_file()
+                            {
+                                debug!("Microprograma: {}", path.display());
+                                self.microprogram = Some(path.display().to_string());
+                            }
+                            ui.label(self.microprogram.as_deref().unwrap_or(""));
+                        });
+                    ui.add_enabled_ui(self.vm.is_some(), |ui| {
+                        ui.horizontal(|ui| {
+                            if let Some(micro_path) = self.microprogram.clone()
+                                && ui.button("🔧 Montar Microprograma").clicked()
+                            {
+                                self.assemble_micro(micro_path.as_str());
+                            }
+                            if let Some(macro_path) = self.macroprogram.clone()
+                                && ui.button("🔧 Montar Macroprograma").clicked()
+                            {
+                                self.assemble_macro(macro_path.as_str());
+                            }
+                        });
+                    });
                 });
-            ui.add_enabled_ui(self.vm.is_some(), |ui| {
-                ui.horizontal(|ui| {
-                    if let Some(micro_path) = self.microprogram.clone()
-                        && ui.button("🔧 Montar Microprograma").clicked()
-                    {
-                        self.assemble_micro(micro_path.as_str());
-                    }
-                    if let Some(macro_path) = self.macroprogram.clone()
-                        && ui.button("🔧 Montar Macroprograma").clicked()
-                    {
-                        self.assemble_macro(macro_path.as_str());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
+                    if ui.button("⚙").clicked() {
+                        // TODO: keywords
                     }
                 });
             });
@@ -203,18 +212,15 @@ impl MyApp {
         vm.set_on_print(Box::new(move |text| {
             s_stdout.send(text).expect("Erro ao exibir saída")
         }));
-        let app = MyApp {
+        MyApp {
             // FIXME: retirar caminhos fixos
             macroprogram: Some(String::from("/home/henrique/code/mac1/teste3.asm")),
             microprogram: Some(String::from("/home/henrique/code/mac1/malde.mal")),
             vm: Some(vm),
             mem_goto: Some(MemGoto::Data),
             stdout_inbox,
-            // FIXME
-            stdout: "teste".to_string(),
             ..Default::default()
-        };
-        app
+        }
     }
     fn assemble_micro(&mut self, path: &str) {
         if let Some(mut vm) = self.vm.take() {
@@ -273,7 +279,10 @@ impl MyApp {
         let s_request = request_inbox.sender();
         let validation_inbox = UiInbox::new();
         let s_validation = validation_inbox.sender();
-        self.vm_input_request = Some((request_inbox, validation_inbox));
+        self.vm_input_request = Some(UIInputInboxes {
+            request: request_inbox,
+            validation: validation_inbox,
+        });
         let (s_pause, r_pause) = channel::<()>();
         self.vm_pauser = Some(s_pause);
         let breaks_mic = self
@@ -313,7 +322,7 @@ impl MyApp {
                     },
                 );
                 s_task
-                    .send((Ok(VMTask::Execute(res)), vm))
+                    .send((Ok(VMTask::Execute(Box::new(res))), vm))
                     .expect("Resposta assícrona falhou");
             });
         }
@@ -419,28 +428,32 @@ impl MyApp {
             .map(|vm| vm.state().clone())
             .unwrap_or_else(|| self.last_res.state.clone());
         if !self.microinstructions.is_empty() {
-            ui.horizontal(|ui| {
-                if ui.button("Resetar").clicked() {
-                    self.reset_vm();
-                }
-                if self.vm.is_some() {
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    if ui.button("🔃︎ Resetar").clicked() {
+                        self.reset_vm();
+                    }
+                    if self.vm.is_some() {
+                        ui.add_enabled_ui(state != VMState::Halted, |ui| {
+                            if ui.button("▶ Executar").clicked() {
+                                self.execute(VMExecutionType::Run);
+                            }
+                        });
+                    } else {
+                        if ui.button("⏸ Pausar").clicked() {
+                            self.pause();
+                        }
+                    }
+                });
+                ui.horizontal(|ui| {
                     ui.add_enabled_ui(state != VMState::Halted, |ui| {
-                        if ui.button("Executar").clicked() {
-                            self.execute(VMExecutionType::Run);
+                        if ui.button("⬇️ ︎Próxima microinstrução").clicked() {
+                            self.execute(VMExecutionType::Microinstruction);
+                        }
+                        if ui.button("⏭ Próxima macroinstrução").clicked() {
+                            self.execute(VMExecutionType::Macroinstruction);
                         }
                     });
-                } else {
-                    if ui.button("Pausar").clicked() {
-                        self.pause();
-                    }
-                }
-                ui.add_enabled_ui(state != VMState::Halted, |ui| {
-                    if ui.button("Próxima microinstrução").clicked() {
-                        self.execute(VMExecutionType::Microinstruction);
-                    }
-                    if ui.button("Próxima macroinstrução").clicked() {
-                        self.execute(VMExecutionType::Macroinstruction);
-                    }
                 });
             });
         };
@@ -982,9 +995,15 @@ impl Display for MemGoto {
     }
 }
 
+struct UIInputInboxes {
+    request: UiInbox<VMInputRequest>,
+    validation: UiInbox<Result<(), String>>,
+}
+
 #[derive(Debug)]
 enum VMTask {
-    Execute(VMResponse),
+    // Usando Box pra reduzir o tamanho total do array
+    Execute(Box<VMResponse>),
     AssembleMac(Vec<Instruction>),
     AssembleMic(Vec<Microinstruction>),
 }

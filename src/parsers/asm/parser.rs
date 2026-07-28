@@ -60,7 +60,7 @@ impl<'a> ASMParser<'a> {
             source_map,
             keywords,
             data_offset,
-            lexer: Tokenizer::new(&source_map).peekable(),
+            lexer: Tokenizer::new(source_map).peekable(),
             data_mem: Vec::new(),
             ins_mem: Vec::new(),
             data_mappings: HashMap::new(),
@@ -101,11 +101,10 @@ impl<'a> ASMParser<'a> {
                 let arg_max: isize = (1 << arg_size) - 1;
                 let n: isize = match argument.2 {
                     PreInstructionArg::Label(s) => {
-                        let n = self.get_mapping(s).map_err(|err| ParsingError {
+                        self.get_mapping(s).map_err(|err| ParsingError {
                             span: span.clone(),
                             error_type: err,
-                        })? as isize;
-                        n
+                        })? as isize
                     }
                     PreInstructionArg::Int(n) => n,
                 };
@@ -335,10 +334,10 @@ impl<'a> ASMParser<'a> {
         if matches!(t.token_type, TokenType::String(..)) {
             Ok(t)
         } else {
-            return Err(ParsingError {
+            Err(ParsingError {
                 span: t.span.clone(),
                 error_type: ParsingErrorType::UnexpectedToken(t, TokenType::String(String::new())),
-            });
+            })
         }
     }
     fn expect_newline(&mut self) -> Result<(), ParsingError> {
@@ -475,13 +474,13 @@ impl TryFrom<Vec<(String, String)>> for KeywordMap {
             .enumerate()
             .map(|(i, (name, op))| {
                 if name.is_empty() {
-                    return Err((i, KeywordMapError::EmptyName));
+                    Err((i, KeywordMapError::EmptyName))
                 } else if op.is_empty() {
-                    return Err((i, KeywordMapError::EmptyOpCode));
+                    Err((i, KeywordMapError::EmptyOpCode))
                 } else if !op.chars().all(|c| c == '0' || c == '1') {
-                    return Err((i, KeywordMapError::InvalidOpCode));
+                    Err((i, KeywordMapError::InvalidOpCode))
                 } else if op.trim().len() > 16 {
-                    return Err((i, KeywordMapError::OpCodeTooBig));
+                    Err((i, KeywordMapError::OpCodeTooBig))
                 } else {
                     match u16::from_str_radix(op.as_str(), 2) {
                         Ok(n) => Ok((name, (n as usize, 16 - n as usize))),
