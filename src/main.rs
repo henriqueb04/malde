@@ -17,7 +17,11 @@ use log::{debug, error};
 
 use crate::{
     architecture::signals::CONTROL_SIGNAL_NAMES,
-    parsers::{asm::Instruction, mal::Microinstruction, source_map::SourceMap},
+    parsers::{
+        asm::{DEFAULT_KEYWORDS, Instruction, KeywordMap},
+        mal::Microinstruction,
+        source_map::SourceMap,
+    },
     virtual_machine::{
         DATA_SEGMENT_START, MEMORY_SIZE, Registers, TEXT_SEGMENT_START, VM, VMExecutionInfo,
         VMExecutionType, VMInputRequest, VMInputRequestType, VMInputResponse, VMResponse, VMState,
@@ -52,10 +56,13 @@ pub struct MyApp {
     last_res: Box<VMResponse>,
     instructions: Vec<Instruction>,
     microinstructions: Vec<Microinstruction>,
+    keywords: KeywordMap,
     breaks_mic: Vec<bool>,
     breaks_mac: Vec<bool>,
     macroprogram: Option<String>,
     microprogram: Option<String>,
+    config_modal_show: bool,
+    config_modal_keywords: Vec<(String, String)>,
     msg_modal_text: Option<String>,
     value_format: ValueFormatType,
     scroll_mpc: Option<usize>,
@@ -174,30 +181,81 @@ impl eframe::App for MyApp {
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
                     if ui.button("⚙").clicked() {
-                        // TODO: keywords
+                        self.show_config_modal();
                     }
                 });
             });
             ui.separator();
             self.instruction_table_ui(ui);
         });
+        let mut invalid = false;
+        if self.config_modal_show {
+            let modal = egui::Modal::new(egui::Id::new("Config modal 1")).show(ui, |ui| {
+                ui.set_width(400.0);
+                ui.heading("Keywords (Assembly)");
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    egui::Grid::new("keywords_grid")
+                        .spacing([4.0, 4.0])
+                        .num_columns(2)
+                        .min_col_width(200.0)
+                        .show(ui, |ui| {
+                            for pair in self.config_modal_keywords.iter_mut() {
+                                let res1 = ui.add(egui::TextEdit::singleline(&mut pair.0));
+                                let res2 = ui.add(egui::TextEdit::singleline(&mut pair.1));
+                                if let Some(err) = KeywordMap::validate_pair(pair)
+                                    .err()
+                                    .map(|err| err.to_string())
+                                {
+                                    invalid = true;
+                                    ui.painter().rect_stroke(
+                                        res1.rect,
+                                        ui.style().visuals.widgets.hovered.corner_radius,
+                                        egui::Stroke::new(2.0, egui::Color32::RED),
+                                        egui::StrokeKind::Middle,
+                                    );
+                                    ui.painter().rect_stroke(
+                                        res2.rect,
+                                        ui.style().visuals.widgets.hovered.corner_radius,
+                                        egui::Stroke::new(2.0, egui::Color32::RED),
+                                        egui::StrokeKind::Middle,
+                                    );
+                                    res1.on_hover_text(&err);
+                                    res2.on_hover_text(&err);
+                                }
+                                ui.end_row();
+                            }
+                        });
+                    if ui.button("+").clicked() {
+                        self.config_modal_keywords
+                            .push((String::new(), String::new()));
+                    }
+                });
+            });
+            if modal.should_close() && !invalid {
+                self.config_modal_show = false;
+            }
+        }
         if let Some(text) = &self.msg_modal_text {
             let modal = egui::Modal::new(egui::Id::new("Msg modal 1")).show(ui, |ui| {
                 ui.set_width(300.0);
                 ui.heading("Message");
                 ui.monospace(text);
-                egui::Sides::new().show(
-                    ui,
-                    |_ui| {},
-                    |ui| {
-                        if ui.button("Ok").clicked() {
-                            ui.close();
-                        }
-                    },
-                )
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
+                    if ui.button("Ok").clicked() {
+                        ui.close();
+                    }
+                });
             });
             if modal.should_close() {
                 self.msg_modal_text = None;
+                match self.config_modal_keywords.clone().try_into() {
+                    Ok(keywords) => self.keywords = keywords,
+                    Err(err) => self.show_error_modal(format!(
+                        "Erro ao processar keyword {}: {}",
+                        err.0 + 1,
+                        err.1
+                    )),
+                }
             }
         }
         self.input_request_ui(ui);
@@ -219,6 +277,9 @@ impl MyApp {
             vm: Some(vm),
             mem_goto: Some(MemGoto::Data),
             stdout_inbox,
+            config_modal_keywords: Vec::from(
+                DEFAULT_KEYWORDS.map(|(name, bin)| (name.to_string(), bin.to_string())),
+            ),
             ..Default::default()
         }
     }
@@ -363,6 +424,10 @@ impl MyApp {
     fn show_error_modal(&mut self, msg: String) {
         error!("{}", msg);
         self.msg_modal_text = Some(msg);
+    }
+
+    fn show_config_modal(&mut self) {
+        self.config_modal_show = true;
     }
 
     fn input_request_ui(&mut self, ui: &mut egui::Ui) {

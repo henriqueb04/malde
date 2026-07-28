@@ -3,43 +3,11 @@ use std::{collections::HashMap, iter::Peekable, mem::discriminant};
 
 use thiserror::Error;
 
-use crate::parsers::asm::tokenizer::{
-    Token, TokenType, Tokenizer, TokenizerError, TokenizerErrorType,
+use crate::parsers::asm::{
+    keyword_map::*,
+    tokenizer::{Token, TokenType, Tokenizer, TokenizerError, TokenizerErrorType},
 };
 use crate::parsers::source_map::{SourceMap, Span};
-
-pub const DEFAULT_KEYWORDS: [(&str, (usize, usize)); 30] = [
-    ("LODD", (0b0000, 12)),
-    ("STOD", (0b0001, 12)),
-    ("ADDD", (0b0010, 12)),
-    ("SUBD", (0b0011, 12)),
-    ("JPOS", (0b0100, 12)),
-    ("JZER", (0b0101, 12)),
-    ("JUMP", (0b0110, 12)),
-    ("LOCO", (0b0111, 12)),
-    ("LODL", (0b1000, 12)),
-    ("STOL", (0b1001, 12)),
-    ("ADDL", (0b1010, 12)),
-    ("SUBL", (0b1011, 12)),
-    ("JNEG", (0b1100, 12)),
-    ("JNZE", (0b1101, 12)),
-    ("CALL", (0b1110, 12)),
-    ("PSHI", (0b1111000000000000, 0)),
-    ("POPI", (0b1111001000000000, 0)),
-    ("PUSH", (0b1111010000000000, 0)),
-    ("POP", (0b1111011000000000, 0)),
-    ("RETN", (0b1111100000000000, 0)),
-    ("SWAP", (0b1111101000000000, 0)),
-    ("SWAPA", (0b1111111100000000, 0)),
-    ("SWAPB", (0b1111111100100000, 0)),
-    ("SWAPC", (0b1111111101000000, 0)),
-    ("SWAPD", (0b1111111101100000, 0)),
-    ("SWAPE", (0b1111111110000000, 0)),
-    ("ECALL", (0b1111111111000000, 0)),
-    ("HALT", (0b0000000000000000, 0)),
-    ("INSP", (0b11111100, 8)),
-    ("DESP", (0b11111110, 8)),
-];
 
 pub struct ASMParser<'a> {
     source_map: &'a SourceMap,
@@ -449,88 +417,6 @@ impl Display for ASMParsingError<'_> {
             self.error_type
         )
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct KeywordMap {
-    map: HashMap<String, (usize, usize)>,
-}
-
-impl Default for KeywordMap {
-    fn default() -> Self {
-        let map = DEFAULT_KEYWORDS
-            .map(|(name, spec)| (name.to_string(), spec))
-            .into_iter()
-            .collect::<HashMap<String, (usize, usize)>>();
-        KeywordMap { map }
-    }
-}
-
-impl TryFrom<Vec<(String, String)>> for KeywordMap {
-    type Error = (usize, KeywordMapError);
-    fn try_from(value: Vec<(String, String)>) -> Result<Self, Self::Error> {
-        let map: HashMap<String, (usize, usize)> = value
-            .into_iter()
-            .enumerate()
-            .map(|(i, (name, op))| {
-                if name.is_empty() {
-                    Err((i, KeywordMapError::EmptyName))
-                } else if op.is_empty() {
-                    Err((i, KeywordMapError::EmptyOpCode))
-                } else if !op.chars().all(|c| c == '0' || c == '1') {
-                    Err((i, KeywordMapError::InvalidOpCode))
-                } else if op.trim().len() > 16 {
-                    Err((i, KeywordMapError::OpCodeTooBig))
-                } else {
-                    match u16::from_str_radix(op.as_str(), 2) {
-                        Ok(n) => Ok((name, (n as usize, 16 - n as usize))),
-                        Err(..) => Err((i, KeywordMapError::InvalidOpCode)),
-                    }
-                }
-            })
-            .collect::<Result<HashMap<String, (usize, usize)>, Self::Error>>()?;
-        Ok(KeywordMap { map })
-    }
-}
-
-impl<'a> TryFrom<Vec<(&'a str, &'a str)>> for KeywordMap {
-    type Error = (usize, KeywordMapError);
-    fn try_from(value: Vec<(&'a str, &'a str)>) -> Result<Self, Self::Error> {
-        let v = value
-            .into_iter()
-            .map(|(name, op)| (name.to_string(), op.to_string()))
-            .collect::<Vec<(String, String)>>();
-        KeywordMap::try_from(v)
-    }
-}
-
-impl KeywordMap {
-    pub fn new() -> Self {
-        Self::default()
-    }
-    pub fn get(&self, key: &str) -> Option<&(usize, usize)> {
-        self.map.get(key)
-    }
-    pub fn insert(&mut self, key: String, value: (usize, usize)) {
-        self.map.insert(key, value);
-    }
-    pub fn to_string_map(&self) -> HashMap<String, String> {
-        self.map
-            .clone()
-            .into_iter()
-            .map(|(name, (op, _))| {
-                let op_str = format!("{:b}", op);
-                (name, op_str)
-            })
-            .collect()
-    }
-}
-
-pub enum KeywordMapError {
-    EmptyName,
-    EmptyOpCode,
-    OpCodeTooBig,
-    InvalidOpCode,
 }
 
 #[derive(Debug, Default)]
