@@ -28,7 +28,7 @@ use crate::{
 };
 
 pub use crate::architecture::memory::{DATA_SEGMENT_START, TEXT_SEGMENT_START};
-pub use crate::architecture::{datapath::Registers, memory::MEMORY_SIZE};
+pub use crate::architecture::{datapath::Register, memory::MEMORY_SIZE};
 
 pub struct VM {
     keywords: KeywordMap,
@@ -94,7 +94,7 @@ impl VM {
     pub fn assemble_mac<'a>(
         &mut self,
         source_map: &'a SourceMap,
-    ) -> Result<Vec<Instruction>, ASMParsingError<'a>> {
+    ) -> Result<Vec<Instruction>, ASMParsingError> {
         let parser = ASMParser::new(source_map, self.keywords.clone(), DATA_SEGMENT_START);
         let ASMParsingResult {
             data_mem,
@@ -114,19 +114,19 @@ impl VM {
             match (input_type, request_type) {
                 (VMInputResponse::Int(n), VMInputRequestType::Int) => {
                     if (VM::MIN_INT..=VM::MAX_INT).contains(&n) {
-                        self.cpu.set_register(Registers::AC, n as u16);
+                        self.cpu.set_register(Register::Ac.index().unwrap(), n as u16);
                         Ok(())
                     } else {
                         Err(VMInputError::InvalidNumber(n, VM::MIN_INT, VM::MAX_INT))
                     }
                 }
                 (VMInputResponse::Char(c), VMInputRequestType::Char) => {
-                    self.cpu.set_register(Registers::AC, c as u8 as u16);
+                    self.cpu.set_register(Register::Ac.index().unwrap(), c as u8 as u16);
                     Ok(())
                 }
                 (VMInputResponse::String(s), VMInputRequestType::String) => {
-                    let addr = self.registers().2[Registers::AC] as usize;
-                    let max_size = self.registers().2[Registers::A] as usize;
+                    let addr = self.registers().2[Register::Ac.index().unwrap()] as usize;
+                    let max_size = self.registers().2[Register::A.index().unwrap()] as usize;
                     let mut memory = self.memory.lock().unwrap();
                     let mut size = 0;
                     for (i, c) in s.as_bytes().iter().enumerate() {
@@ -302,24 +302,24 @@ impl VM {
 
     fn execute_syscall(&mut self) -> Option<VMInputRequestType> {
         let (_, _, registers) = self.cpu.get_registers();
-        match registers[Registers::E] {
+        match registers[Register::E.index().unwrap()] {
             Syscalls::PRINT_INT => {
-                let s = format!("{}", registers[Registers::AC] as i16);
+                let s = format!("{}", registers[Register::Ac.index().unwrap()] as i16);
                 self.print_to_stdout(&s);
                 None
             }
             Syscalls::PRINT_CHAR => {
-                let s = format!("{}", registers[Registers::AC] as u8 as char);
+                let s = format!("{}", registers[Register::Ac.index().unwrap()] as u8 as char);
                 self.print_to_stdout(&s);
                 None
             }
             Syscalls::PRINT_INT_HEX => {
-                let s = format!("{:04X}", registers[Registers::AC]);
+                let s = format!("{:04X}", registers[Register::Ac.index().unwrap()]);
                 self.print_to_stdout(&s);
                 None
             }
             Syscalls::PRINT_STRING => {
-                let start = registers[Registers::AC];
+                let start = registers[Register::Ac.index().unwrap()];
                 let s = {
                     let memory = self.memory.lock().unwrap();
                     let m = memory.get_ref();
@@ -335,12 +335,12 @@ impl VM {
                 None
             }
             Syscalls::PRINT_INT_BINARY => {
-                let s = format!("{:016b}", registers[Registers::AC]);
+                let s = format!("{:016b}", registers[Register::Ac.index().unwrap()]);
                 self.print_to_stdout(&s);
                 None
             }
             Syscalls::PRINT_INT_UNSIGNED => {
-                let s = format!("{}", registers[Registers::AC]);
+                let s = format!("{}", registers[Register::Ac.index().unwrap()]);
                 self.print_to_stdout(&s);
                 None
             }

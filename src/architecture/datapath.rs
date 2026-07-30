@@ -1,3 +1,5 @@
+use std::{fmt::Display, str::FromStr};
+
 use crate::architecture::{
     events::EventHandler,
     signals::{ALUSignals, ControlSignals},
@@ -26,7 +28,7 @@ impl Datapath {
             bus_c: 0,
             mar: 0,
             mbr: 0,
-            registers: Registers::DEFAULT_VALUES,
+            registers: Register::DEFAULT_VALUES,
             alu_in_a: 0,
             alu_out: 0,
             alu_sigs: ALUSignals { z: false, n: false },
@@ -121,7 +123,7 @@ impl Datapath {
     }
 
     pub fn reset(&mut self) {
-        self.registers = Registers::DEFAULT_VALUES;
+        self.registers = Register::DEFAULT_VALUES;
         self.mar = 0;
         self.mbr = 0;
     }
@@ -134,25 +136,30 @@ impl Datapath {
     }
 }
 
-pub struct Registers;
-#[allow(unused)]
-impl Registers {
-    pub const PC: usize = 0;
-    pub const AC: usize = 1;
-    pub const SP: usize = 2;
-    pub const IR: usize = 3;
-    pub const TIR: usize = 4;
-    pub const ZERO: usize = 5;
-    pub const ONE: usize = 6;
-    pub const MINUS_ONE: usize = 7;
-    pub const AMASK: usize = 8;
-    pub const SMASK: usize = 9;
-    pub const A: usize = 10;
-    pub const B: usize = 11;
-    pub const C: usize = 12;
-    pub const D: usize = 13;
-    pub const E: usize = 14;
-    pub const F: usize = 15;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Register {
+    Pc,
+    Ac,
+    Sp,
+    Ir,
+    Tir,
+    Zero,
+    One,
+    MinusOne,
+    Amask,
+    Smask,
+    A,
+    B,
+    C,
+    D,
+    E,
+    F,
+    Alu,
+    Mar,
+    Mbr,
+}
+
+impl Register {
     pub const DEFAULT_VALUES: RegisterBank = [
         0,
         0,
@@ -172,7 +179,7 @@ impl Registers {
         0,
     ];
     pub const NAMES: [&str; 16] = [
-        "pc", "ac", "sp", "ir", "tir", "0", "1", "-1", "amask", "smask", "a", "b", "c", "d", "e",
+        "pc", "ac", "sp", "ir", "tir", "0", "1", "(-1)", "amask", "smask", "a", "b", "c", "d", "e",
         "f",
     ];
     pub fn get_index(register_name: &str) -> Option<u8> {
@@ -195,5 +202,83 @@ impl Registers {
             "f" => Some(15),
             _ => None,
         }
+    }
+    pub const fn index(&self) -> Option<usize> {
+        match self {
+            Self::Pc => Some(0),
+            Self::Ac => Some(1),
+            Self::Sp => Some(2),
+            Self::Ir => Some(3),
+            Self::Tir => Some(4),
+            Self::Zero => Some(5),
+            Self::One => Some(6),
+            Self::MinusOne => Some(7),
+            Self::Amask => Some(8),
+            Self::Smask => Some(9),
+            Self::A => Some(10),
+            Self::B => Some(11),
+            Self::C => Some(12),
+            Self::D => Some(13),
+            Self::E => Some(14),
+            Self::F => Some(15),
+            _ => None
+        }
+    }
+    pub const fn name(&self) -> &'static str {
+        match self {
+            Self::Pc => "pc",
+            Self::Ac => "ac",
+            Self::Sp => "sp",
+            Self::Ir => "ir",
+            Self::Tir => "tir",
+            Self::Zero => "0",
+            Self::One => "1",
+            Self::MinusOne => "(-1)",
+            Self::Amask => "amask",
+            Self::Smask => "smask",
+            Self::A => "a",
+            Self::B => "b",
+            Self::C => "c",
+            Self::D => "d",
+            Self::E => "e",
+            Self::F => "f",
+            Self::Alu => "(nenhum)",
+            Self::Mar => "mar",
+            Self::Mbr => "mbr",
+        }
+    }
+}
+
+impl FromStr for Register {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "pc" => Ok(Self::Pc),
+            "ac" => Ok(Self::Ac),
+            "sp" => Ok(Self::Sp),
+            "ir" => Ok(Self::Ir),
+            "tir" => Ok(Self::Tir),
+            "0" => Ok(Self::Zero),
+            "1" => Ok(Self::One),
+            "(-1)" => Ok(Self::MinusOne),
+            "amask" => Ok(Self::Amask),
+            "smask" => Ok(Self::Smask),
+            "a" => Ok(Self::A),
+            "b" => Ok(Self::B),
+            "c" => Ok(Self::C),
+            "d" => Ok(Self::D),
+            "e" => Ok(Self::E),
+            "f" => Ok(Self::F),
+            "alu" => Ok(Self::Alu),
+            "mar" => Ok(Self::Mar),
+            "mbr" => Ok(Self::Mbr),
+            _ => Err(()),
+        }
+    }
+}
+
+impl Display for Register {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name())
     }
 }

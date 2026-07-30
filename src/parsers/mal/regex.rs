@@ -1,4 +1,4 @@
-use crate::architecture::datapath::Registers;
+use crate::architecture::datapath::Register;
 use crate::parsers::mal::errors::ParsingErrorType;
 use crate::parsers::mal::mir_builder::ControlSignalsBuilder;
 use regex::{Captures, Regex};
@@ -94,7 +94,7 @@ fn parse_expr<'a, 'b>(
     };
     // Verificações
     let dest = dest.as_str();
-    let dest_index = Registers::get_index(dest);
+    let dest_index = Register::get_index(dest);
     let dest_is_register = dest_index.is_some();
     let dest_is_mbr = dest == "mbr";
     let dest_is_mar = dest == "mar";
@@ -143,7 +143,7 @@ fn parse_expr<'a, 'b>(
     if dest_is_mar {
         if let Some(name) = transparency {
             let name = name.as_str();
-            let Some(index) = Registers::get_index(name) else {
+            let Some(index) = Register::get_index(name) else {
                 if name == "mar" || name == "mbr" {
                     return Err(ParsingErrorType::ImpossiblePath(dest, name));
                 }
@@ -226,7 +226,7 @@ where
             op.get(0).unwrap().as_str(),
         ));
     }
-    let Some(index) = Registers::get_index(name) else {
+    let Some(index) = Register::get_index(name) else {
         return Err(ParsingErrorType::InvalidRegister(name));
     };
     mir.set_bool("amux", false)?;
@@ -251,7 +251,7 @@ fn set_reg_b<'a, 'b>(
             op.get(0).unwrap().as_str(),
         ));
     }
-    let Some(index) = Registers::get_index(name) else {
+    let Some(index) = Register::get_index(name) else {
         return Err(ParsingErrorType::InvalidRegister(name));
     };
     // Caso B esteja ocupado e A tenha o valor desejado em B, verifica se há possibilidade de

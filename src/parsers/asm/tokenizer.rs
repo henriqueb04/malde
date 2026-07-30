@@ -171,6 +171,7 @@ impl<'a> Iterator for Tokenizer<'a> {
                     let col2 = self.reader.col();
                     if let Some((len2, &c2)) = self.reader.peek() {
                         if c2 == '\n' {
+                            comment = false;
                             None
                         } else {
                             return Some(Err(TokenizerError {
@@ -420,7 +421,7 @@ impl<'a> Iterator for Tokenizer<'a> {
 }
 
 #[derive(Error, Clone, Debug, PartialEq, Eq)]
-#[error("Erro de sintaxe: {error_type} em {span:?}")]
+#[error("Erro de sintaxe: {error_type} em {span}")]
 pub struct TokenizerError {
     pub span: Span,
     #[source]
@@ -444,7 +445,7 @@ pub enum TokenizerErrorType {
 }
 
 fn is_identifier_start(c: &char) -> bool {
-    c.is_alphabetic()
+    c.is_alphabetic() || *c == '_'
 }
 fn is_identifier_body(c: &char) -> bool {
     c.is_alphanumeric() || *c == '_'
@@ -467,7 +468,7 @@ mod tests {
     fn test_tokens() {
         let source_map = SourceMap::from_content(
             "5 .data
-                TESTE1: .word 1, -2\\\n, 0xff, 0b11111111
+                TESTE1: .word 1, -2 # comentário \\\n, 0xff, 0b11111111
                 TESTE2: .asciz \"String\n ascii com \\n caracteres de\\tcontrole\"
                 TESTE3: .byte ' ', '\\n'
             .text

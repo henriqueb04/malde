@@ -23,7 +23,7 @@ use crate::{
         source_map::SourceMap,
     },
     virtual_machine::{
-        DATA_SEGMENT_START, MEMORY_SIZE, Registers, TEXT_SEGMENT_START, VM, VMExecutionInfo,
+        DATA_SEGMENT_START, MEMORY_SIZE, Register, TEXT_SEGMENT_START, VM, VMExecutionInfo,
         VMExecutionType, VMInputRequest, VMInputRequestType, VMInputResponse, VMResponse, VMState,
     },
 };
@@ -626,7 +626,7 @@ impl MyApp {
                 });
                 body.rows(text_height, 16, |mut row| {
                     let row_index = row.index();
-                    let reg_name = Registers::NAMES.get(row_index).map_or("", |v| v);
+                    let reg_name = Register::NAMES.get(row_index).map_or("", |v| v);
                     if self
                         .last_res
                         .events
