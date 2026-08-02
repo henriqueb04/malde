@@ -13,7 +13,6 @@ pub enum TokenType {
     Comma,
     LeftParen,
     RightParen,
-    // bool false para lshift, bool true para rshift
     Shift(u8),
     AluFunc(u8),
     Register(Register),
@@ -22,6 +21,10 @@ pub enum TokenType {
     Goto,
     Plus,
     Assign,
+    Syscall,
+    Wr,
+    Rd,
+    Condition(u8),
     Newline,
 }
 
@@ -41,6 +44,28 @@ impl<'a> Tokenizer<'a> {
         Tokenizer {
             source_map: source_map.clone(),
             reader: source_map.reader(),
+        }
+    }
+
+    pub fn map_identifier(s: &str) -> TokenType {
+        if let Ok(register) = s.parse::<Register>() {
+            TokenType::Register(register)
+        } else {
+            match s {
+                "lshift" => TokenType::Shift(1),
+                "rshift" => TokenType::Shift(2),
+                "band" => TokenType::AluFunc(1),
+                "inv" => TokenType::AluFunc(3),
+                "if" => TokenType::If,
+                "then" => TokenType::Then,
+                "goto" => TokenType::Goto,
+                "syscall" => TokenType::Syscall,
+                "wr" => TokenType::Wr,
+                "rd" => TokenType::Rd,
+                "n" => TokenType::Condition(1),
+                "z" => TokenType::Condition(2),
+                _ => TokenType::Identifier,
+            }
         }
     }
 
@@ -65,6 +90,22 @@ impl<'a> Tokenizer<'a> {
             Some(span)
         } else {
             None
+        }
+    }
+
+    fn next_mapped(&mut self) -> Option<Result<Token, TokenizerError>> {
+        match self.next()? {
+            Ok(t) => {
+                if t.token_type == TokenType::Identifier {
+                    Some(Ok(Token {
+                        token_type: Tokenizer::map_identifier(self.source_map.get(&t)),
+                        span: t.span,
+                    }))
+                } else {
+                    Some(Ok(t))
+                }
+            }
+            Err(err) => Some(Err(err)),
         }
     }
 }
@@ -140,17 +181,6 @@ impl<'a> Iterator for Tokenizer<'a> {
                     self.reader.next();
                     None
                 }
-                '-' => {
-                    return Some(Err(TokenizerError {
-                        span: Span {
-                            start,
-                            end: start + len,
-                            line,
-                            col,
-                        },
-                        error_type: TokenizerErrorType::UnexpectedMinus,
-                    }));
-                }
                 '(' => {
                     self.reader.next();
                     if let Some((len2, c2)) = self.reader.peek()
@@ -217,45 +247,10 @@ impl<'a> Iterator for Tokenizer<'a> {
                         },
                     })
                 }
-                '0' => {
-                    self.reader.next();
-                    Some(Token {
-                        token_type: TokenType::Register(Register::Zero),
-                        span: Span {
-                            start,
-                            end: start + len,
-                            line,
-                            col,
-                        },
-                    })
-                }
-                '1' => {
-                    self.reader.next();
-                    Some(Token {
-                        token_type: TokenType::Register(Register::One),
-                        span: Span {
-                            start,
-                            end: start + len,
-                            line,
-                            col,
-                        },
-                    })
-                }
-                _ if is_identifier_start(&c) => {
-                    let span = self.read_identifier()?;
-                    let name = self.source_map.get_span(&span);
-                    if let Ok(register) = name.parse::<Register>() {
-                        Some(Token {
-                            token_type: TokenType::Register(register),
-                            span,
-                        })
-                    } else {
-                        Some(Token {
-                            token_type: get_keyword(name),
-                            span,
-                        })
-                    }
-                }
+                _ if is_identifier_start(&c) => Some(Token {
+                    token_type: TokenType::Identifier,
+                    span: self.read_identifier()?,
+                }),
                 ';' => {
                     self.reader.next();
                     let span = Span {
@@ -331,23 +326,10 @@ impl<'a> Iterator for Tokenizer<'a> {
 }
 
 fn is_identifier_start(c: &char) -> bool {
-    c.is_alphabetic() || *c == '_'
+    is_identifier_body(c)
 }
 fn is_identifier_body(c: &char) -> bool {
-    c.is_alphanumeric() || *c == '_'
-}
-
-fn get_keyword(s: &str) -> TokenType {
-    match s {
-        "lshift" => TokenType::Shift(1),
-        "rshift" => TokenType::Shift(2),
-        "band" => TokenType::AluFunc(1),
-        "inv" => TokenType::AluFunc(3),
-        "if" => TokenType::If,
-        "then" => TokenType::Then,
-        "goto" => TokenType::Goto,
-        _ => TokenType::Identifier,
-    }
+    c.is_alphanumeric() || *c == '_' || *c == '-'
 }
 
 #[derive(Error, Clone, Debug, PartialEq, Eq)]
@@ -392,8 +374,32 @@ impl Display for TokenType {
                 TokenType::Goto => "goto".to_string(),
                 TokenType::Plus => "+".to_string(),
                 TokenType::Assign => ":=".to_string(),
+                TokenType::Syscall => "syscall".to_string(),
+                TokenType::Wr => "wr".to_string(),
+                TokenType::Rd => "rd".to_string(),
+                TokenType::Condition(cond) => match cond {
+                    1 => "n",
+                    2 => "z",
+                    _ => "condição",
+                }
+                .to_string(),
             }
         )
+    }
+}
+
+impl Token {
+    pub fn mapped(self, source_map: &SourceMap) -> Token {
+        let name = source_map.get_span(&self.span);
+        let typ = if self.token_type == TokenType::Identifier {
+            Tokenizer::map_identifier(name)
+        } else {
+            self.token_type
+        };
+        Token {
+            token_type: typ,
+            span: self.span,
+        }
     }
 }
 
@@ -413,11 +419,17 @@ impl HasSpan for Token {
 mod tests {
     use super::*;
 
-    fn lexer_assert(lexer: &mut Tokenizer) -> impl FnMut(TokenType, &str) {
-        move |typ, content| {
-            let token = lexer.next().unwrap().unwrap();
+    use pretty_assertions::assert_eq;
+
+    struct Assert<'a> {
+        lexer: Tokenizer<'a>,
+    }
+    impl Assert<'_> {
+        #[track_caller]
+        fn next(&mut self, typ: TokenType, content: &str) {
+            let token = self.lexer.next_mapped().unwrap().unwrap();
             assert_eq!(token.token_type, typ);
-            assert_eq!(lexer.source_map.get_span(&token.span), content);
+            assert_eq!(self.lexer.source_map.get_span(&token.span), content);
         }
     }
 
@@ -427,49 +439,73 @@ mod tests {
             "
         alu pc ac sp ir tir 0 1 (-1) amask smask a b c d e f
         LABEL: alu := lshift(a + b); mar := rshift(inv(mbr));
+        wr; rd; syscall; if n then goto LABEL;
+        LABEL2: if z goto LABEL;
         ",
         );
-        let mut lexer = Tokenizer::new(&source_map);
-        let mut assert_next = lexer_assert(&mut lexer);
-        assert_next(TokenType::Newline, "\n");
-        assert_next(TokenType::Register(Register::Alu), "alu");
-        assert_next(TokenType::Register(Register::Pc), "pc");
-        assert_next(TokenType::Register(Register::Ac), "ac");
-        assert_next(TokenType::Register(Register::Sp), "sp");
-        assert_next(TokenType::Register(Register::Ir), "ir");
-        assert_next(TokenType::Register(Register::Tir), "tir");
-        assert_next(TokenType::Register(Register::Zero), "0");
-        assert_next(TokenType::Register(Register::One), "1");
-        assert_next(TokenType::Register(Register::MinusOne), "(-1)");
-        assert_next(TokenType::Register(Register::Amask), "amask");
-        assert_next(TokenType::Register(Register::Smask), "smask");
-        assert_next(TokenType::Register(Register::A), "a");
-        assert_next(TokenType::Register(Register::B), "b");
-        assert_next(TokenType::Register(Register::C), "c");
-        assert_next(TokenType::Register(Register::D), "d");
-        assert_next(TokenType::Register(Register::E), "e");
-        assert_next(TokenType::Register(Register::F), "f");
-        assert_next(TokenType::Newline, "\n");
-        assert_next(TokenType::Identifier, "LABEL");
-        assert_next(TokenType::Colon, ":");
-        assert_next(TokenType::Register(Register::Alu), "alu");
-        assert_next(TokenType::Assign, ":=");
-        assert_next(TokenType::Shift(1), "lshift");
-        assert_next(TokenType::LeftParen, "(");
-        assert_next(TokenType::Register(Register::A), "a");
-        assert_next(TokenType::Plus, "+");
-        assert_next(TokenType::Register(Register::B), "b");
-        assert_next(TokenType::RightParen, ")");
-        assert_next(TokenType::Semicolon, ";");
-        assert_next(TokenType::Register(Register::Mar), "mar");
-        assert_next(TokenType::Assign, ":=");
-        assert_next(TokenType::Shift(2), "rshift");
-        assert_next(TokenType::LeftParen, "(");
-        assert_next(TokenType::AluFunc(3), "inv");
-        assert_next(TokenType::LeftParen, "(");
-        assert_next(TokenType::Register(Register::Mbr), "mbr");
-        assert_next(TokenType::RightParen, ")");
-        assert_next(TokenType::RightParen, ")");
-        assert_next(TokenType::Semicolon, ";");
+        let lexer = Tokenizer::new(&source_map);
+        let mut assert = Assert { lexer };
+        assert.next(TokenType::Newline, "\n");
+        assert.next(TokenType::Register(Register::Alu), "alu");
+        assert.next(TokenType::Register(Register::Pc), "pc");
+        assert.next(TokenType::Register(Register::Ac), "ac");
+        assert.next(TokenType::Register(Register::Sp), "sp");
+        assert.next(TokenType::Register(Register::Ir), "ir");
+        assert.next(TokenType::Register(Register::Tir), "tir");
+        assert.next(TokenType::Register(Register::Zero), "0");
+        assert.next(TokenType::Register(Register::One), "1");
+        assert.next(TokenType::Register(Register::MinusOne), "(-1)");
+        assert.next(TokenType::Register(Register::Amask), "amask");
+        assert.next(TokenType::Register(Register::Smask), "smask");
+        assert.next(TokenType::Register(Register::A), "a");
+        assert.next(TokenType::Register(Register::B), "b");
+        assert.next(TokenType::Register(Register::C), "c");
+        assert.next(TokenType::Register(Register::D), "d");
+        assert.next(TokenType::Register(Register::E), "e");
+        assert.next(TokenType::Register(Register::F), "f");
+        assert.next(TokenType::Newline, "\n");
+        assert.next(TokenType::Identifier, "LABEL");
+        assert.next(TokenType::Colon, ":");
+        assert.next(TokenType::Register(Register::Alu), "alu");
+        assert.next(TokenType::Assign, ":=");
+        assert.next(TokenType::Shift(1), "lshift");
+        assert.next(TokenType::LeftParen, "(");
+        assert.next(TokenType::Register(Register::A), "a");
+        assert.next(TokenType::Plus, "+");
+        assert.next(TokenType::Register(Register::B), "b");
+        assert.next(TokenType::RightParen, ")");
+        assert.next(TokenType::Semicolon, ";");
+        assert.next(TokenType::Register(Register::Mar), "mar");
+        assert.next(TokenType::Assign, ":=");
+        assert.next(TokenType::Shift(2), "rshift");
+        assert.next(TokenType::LeftParen, "(");
+        assert.next(TokenType::AluFunc(3), "inv");
+        assert.next(TokenType::LeftParen, "(");
+        assert.next(TokenType::Register(Register::Mbr), "mbr");
+        assert.next(TokenType::RightParen, ")");
+        assert.next(TokenType::RightParen, ")");
+        assert.next(TokenType::Semicolon, ";");
+        assert.next(TokenType::Newline, "\n");
+        assert.next(TokenType::Wr, "wr");
+        assert.next(TokenType::Semicolon, ";");
+        assert.next(TokenType::Rd, "rd");
+        assert.next(TokenType::Semicolon, ";");
+        assert.next(TokenType::Syscall, "syscall");
+        assert.next(TokenType::Semicolon, ";");
+        assert.next(TokenType::If, "if");
+        assert.next(TokenType::Condition(1), "n");
+        assert.next(TokenType::Then, "then");
+        assert.next(TokenType::Goto, "goto");
+        assert.next(TokenType::Identifier, "LABEL");
+        assert.next(TokenType::Semicolon, ";");
+        assert.next(TokenType::Newline, "\n");
+        assert.next(TokenType::Identifier, "LABEL2");
+        assert.next(TokenType::Colon, ":");
+        assert.next(TokenType::If, "if");
+        assert.next(TokenType::Condition(2), "z");
+        assert.next(TokenType::Goto, "goto");
+        assert.next(TokenType::Identifier, "LABEL");
+        assert.next(TokenType::Semicolon, ";");
+        assert.next(TokenType::Newline, "\n");
     }
 }
