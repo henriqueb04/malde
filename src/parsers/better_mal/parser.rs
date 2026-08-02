@@ -154,6 +154,8 @@ impl<'a> MALParser<'a> {
             });
         }
         mir.addr_name(id.span.clone(), &id.span)?;
+        // Se não já estiver definido, definir com 3
+        let _ = mir.cond(3, &first.span);
         Ok(())
     }
 
@@ -177,6 +179,8 @@ impl<'a> MALParser<'a> {
                 });
             }
         }
+        let goto_first = self.next("then ou goto")?;
+        self.read_goto(mir, goto_first)?;
         Ok(())
     }
 
@@ -579,6 +583,10 @@ pub struct Microinstruction {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
+    use crate::parsers::mal::MALParser as OldParser;
+
     use super::*;
 
     use pretty_assertions::assert_eq;
@@ -642,5 +650,61 @@ mod tests {
                 ..expected
             }
         );
+
+        let source_map = SourceMap::from_content(
+            "0: f := lshift(1 + (-1)); wr; rd; syscall; if n then goto 1;\n1: if z goto 2;\n2: goto 0;",
+        );
+        assert_eq!(
+            MALParser::new(&source_map)
+                .parse()
+                .unwrap()
+                .into_iter()
+                .map(|m| m.mir)
+                .collect::<Vec<_>>(),
+            vec![
+                ControlSignals {
+                    sh: 1,
+                    a: 6,
+                    b: 7,
+                    c: 15,
+                    enc: true,
+                    wr: true,
+                    rd: true,
+                    syscall: true,
+                    cond: 1,
+                    addr: 1,
+                    ..Default::default()
+                },
+                ControlSignals {
+                    cond: 2,
+                    addr: 2,
+                    ..Default::default()
+                },
+                ControlSignals {
+                    cond: 3,
+                    addr: 0,
+                    ..Default::default()
+                },
+            ]
+        )
+    }
+
+    fn test_equivalence() {
+        let source_map = SourceMap::from_filepath("./malde.mal").unwrap();
+        let parser1 = MALParser::new(&source_map);
+        let mics1 = parser1
+            .parse()
+            .unwrap()
+            .into_iter()
+            .map(|m| m.mir)
+            .collect::<Vec<_>>();
+        let parser2 = OldParser::new();
+        let mics2 = parser2
+            .parse_instructions(fs::read_to_string("./malde.mal").unwrap().as_str())
+            .unwrap()
+            .into_iter()
+            .map(|m| m.mir)
+            .collect::<Vec<_>>();
+        assert_eq!(mics1, mics2);
     }
 }
