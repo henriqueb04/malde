@@ -194,14 +194,16 @@ impl eframe::App for MyApp {
                 ui.set_width(400.0);
                 ui.heading("Keywords (Assembly)");
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    egui::Grid::new("keywords_grid")
-                        .spacing([4.0, 4.0])
-                        .num_columns(2)
-                        .min_col_width(200.0)
-                        .show(ui, |ui| {
-                            for pair in self.config_modal_keywords.iter_mut() {
-                                let res1 = ui.add(egui::TextEdit::singleline(&mut pair.0));
-                                let res2 = ui.add(egui::TextEdit::singleline(&mut pair.1));
+                    let mut to_remove = None;
+                    ui.vertical(|ui| {
+                        for (i, pair) in self.config_modal_keywords.iter_mut().enumerate() {
+                            ui.horizontal(|ui| {
+                                let res1 = ui.add(
+                                    egui::TextEdit::singleline(&mut pair.0).desired_width(190.0),
+                                );
+                                let res2 = ui.add(
+                                    egui::TextEdit::singleline(&mut pair.1).desired_width(200.0),
+                                );
                                 if let Some(err) = KeywordMap::validate_pair(pair)
                                     .err()
                                     .map(|err| err.to_string())
@@ -222,13 +224,32 @@ impl eframe::App for MyApp {
                                     res1.on_hover_text(&err);
                                     res2.on_hover_text(&err);
                                 }
-                                ui.end_row();
-                            }
-                        });
-                    if ui.button("+").clicked() {
-                        self.config_modal_keywords
-                            .push((String::new(), String::new()));
+                                if ui.button("🗙").clicked() {
+                                    to_remove = Some(i);
+                                }
+                                ui.add_space(10.0);
+                            });
+                        }
+                    });
+                    if let Some(to_remove) = to_remove {
+                        self.config_modal_keywords.remove(to_remove);
                     }
+                    ui.with_layout(
+                        egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                        |ui| {
+                            if ui.button("+").clicked() {
+                                self.config_modal_keywords
+                                    .push((String::new(), String::new()));
+                            }
+                        },
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
+                        ui.add_enabled_ui(!invalid, |ui| {
+                            if ui.button("Ok").clicked() && !invalid {
+                                ui.close();
+                            }
+                        })
+                    });
                 });
             });
             if modal.should_close() && !invalid {
