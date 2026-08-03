@@ -1,15 +1,15 @@
-use std::fmt::Display;
-use std::{collections::HashMap, iter::Peekable};
+use std::{collections::HashMap, fmt::Display, iter::Peekable};
 
 use thiserror::Error;
 
-use crate::architecture::signals::ControlSignals;
-use crate::parsers::better_mal::{
-    mir_builder::*,
-    tokenizer::{Token, TokenType, Tokenizer, TokenizerError, TokenizerErrorType},
+use crate::{
+    architecture::{datapath::Register, signals::ControlSignals},
+    parsers::better_mal::{
+        mir_builder::*,
+        tokenizer::{Token, TokenType, Tokenizer, TokenizerError, TokenizerErrorType},
+    },
+    parsers::source_map::{SourceMap, Span},
 };
-use crate::parsers::source_map::{SourceMap, Span};
-use crate::virtual_machine::Register;
 
 pub struct MALParser<'a> {
     source_map: &'a SourceMap,
@@ -46,7 +46,7 @@ impl<'a> MALParser<'a> {
     inv :: "inv" "(" register ")"
     */
     pub fn parse(mut self) -> Result<Vec<Microinstruction>, MALParsingError> {
-        self.burn_newlines()
+        self.burn_tokens(TokenType::Newline)
             .map_err(|err| MALParsingError::new(self.source_map, err))?;
         while self.lexer.peek().is_some() {
             self.parse_clock()
@@ -252,7 +252,7 @@ impl<'a> MALParser<'a> {
             // Se tentar acessar o valor de MAR
             return Err(ParsingError {
                 span: mar.1.clone(),
-                error_type: ParsingErrorType::NotAcessibleForOperation("mar"),
+                error_type: ParsingErrorType::WriteOnlyRegister("mar"),
             });
         } else if let Some(alu) = reg_b
             .as_ref()
@@ -472,7 +472,7 @@ impl<'a> MALParser<'a> {
             return Ok(());
         }
         self.expect(TokenType::Newline)?;
-        self.burn_newlines()?;
+        self.burn_tokens(TokenType::Newline)?;
         Ok(())
     }
     fn expect(&mut self, typ: TokenType) -> Result<Token, ParsingError> {
@@ -485,11 +485,11 @@ impl<'a> MALParser<'a> {
         }
         Ok(t)
     }
-    fn burn_newlines(&mut self) -> Result<(), ParsingError> {
-        while let Some(typ) = self.peek_kind()?
-            && *typ == TokenType::Newline
+    fn burn_tokens(&mut self, typ: TokenType) -> Result<(), ParsingError> {
+        while let Some(t) = self.peek_kind()?
+            && *t == typ
         {
-            self.next_unmapped("quebra de linha")?;
+            self.next_unmapped(&typ.to_string())?;
         }
         Ok(())
     }
@@ -557,7 +557,7 @@ pub enum ParsingErrorType {
     )]
     ImplossibleRoute(&'static str, &'static str),
     #[error("O registrador {0} não é acessível para operações da ula")]
-    NotAcessibleForOperation(&'static str),
+    WriteOnlyRegister(&'static str),
     #[error("Registrador não reconhecido")]
     UnrecognizedRegister,
     #[error("Rótulo não encontrado")]
@@ -597,6 +597,17 @@ mod tests {
     use super::*;
 
     use pretty_assertions::assert_eq;
+
+    #[track_caller]
+    fn parse_content(content: &'static str) -> Vec<ControlSignals> {
+        let source_map = SourceMap::from_content(content);
+        MALParser::new(&source_map)
+            .parse()
+            .unwrap()
+            .into_iter()
+            .map(|m| m.mir)
+            .collect::<Vec<_>>()
+    }
 
     #[test]
     fn test_parser() {
@@ -658,16 +669,12 @@ mod tests {
             }
         );
 
-        let source_map = SourceMap::from_content(
-            "0: f := lshift(1 + (-1)); wr; rd; syscall; if n then goto 1;\n1: if z goto 2;\n2: goto 0;",
-        );
         assert_eq!(
-            MALParser::new(&source_map)
-                .parse()
-                .unwrap()
-                .into_iter()
-                .map(|m| m.mir)
-                .collect::<Vec<_>>(),
+            parse_content(concat!(
+                "0: f := lshift(1 + (-1)); wr; rd; syscall; if n then goto 1;\n",
+                "1: if z goto 2;\n",
+                "2: goto 0;",
+            )),
             vec![
                 ControlSignals {
                     sh: 1,
@@ -694,6 +701,74 @@ mod tests {
                 },
             ]
         )
+    }
+
+    #[track_caller]
+    fn assert_err(content: &str, err: ParsingErrorType) {
+        let sm = SourceMap::from_content(content);
+        let parser = MALParser::new(&sm);
+        assert_eq!(parser.parse().unwrap_err().error_type, err);
+    }
+
+    #[test]
+    fn test_errors() {
+        assert_err(
+            "]",
+            ParsingErrorType::TokenError(TokenizerErrorType::UnexpectedCharacter),
+        );
+        assert_err(
+            "ac := 1; pc := ac;",
+            ParsingErrorType::ValueConflict(
+                ValueConflict {
+                    name: "c",
+                    before: 1,
+                    after: 0,
+                    span: &Span {
+                        start: 9,
+                        end: 11,
+                        line: 1,
+                        col: 10,
+                    },
+                }
+                .to_string(),
+            ),
+        );
+        assert_err(
+            "0: ",
+            ParsingErrorType::UnexpectedEnd("rótulo ou instrução".to_string()),
+        );
+        assert_err(
+            "0: ;",
+            ParsingErrorType::UnexpectedToken(
+                "rótulo ou instrução".to_string(),
+                Token {
+                    token_type: TokenType::Semicolon,
+                    span: Span {
+                        start: 3,
+                        end: 4,
+                        line: 1,
+                        col: 4,
+                    },
+                },
+            ),
+        );
+        assert_err("pc := alu", ParsingErrorType::NotARealRegister);
+        assert_err("mar := 1 + 1", ParsingErrorType::IlegalOperation("mar"));
+        assert_err(
+            "mar := lshift (a)",
+            ParsingErrorType::IlegalOperation("mar"),
+        );
+        assert_err("mar := inv (a)", ParsingErrorType::IlegalOperation("mar"));
+        assert_err(
+            "mar := lshift (inv (a))",
+            ParsingErrorType::IlegalOperation("mar"),
+        );
+        assert_err(
+            "mar := mbr;",
+            ParsingErrorType::ImplossibleRoute("mbr", "mar"),
+        );
+        assert_err("alu := mar;", ParsingErrorType::WriteOnlyRegister("mar"));
+        assert_err("0: goto 1;", ParsingErrorType::UnrecognizedLabel);
     }
 
     // Foi observado que o parser antigo continha um bug que foi corrigido no parser novo.

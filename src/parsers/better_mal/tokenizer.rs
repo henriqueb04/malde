@@ -2,8 +2,7 @@ use std::fmt::Display;
 
 use thiserror::Error;
 
-use crate::architecture::datapath::Register;
-use crate::parsers::source_map::*;
+use crate::{architecture::datapath::Register, parsers::source_map::*};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenType {
