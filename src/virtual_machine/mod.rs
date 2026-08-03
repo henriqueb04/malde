@@ -22,7 +22,7 @@ use crate::{
         asm::{
             ASMParser, ASMParsingError, Instruction, KeywordMap, ParserResult as ASMParsingResult,
         },
-        mal::{MALParser, Microinstruction, ParsingError as MALParsingError},
+        better_mal::{MALParser, Microinstruction, MALParsingError},
         source_map::SourceMap,
     },
 };
@@ -72,10 +72,10 @@ impl VM {
 
     pub fn assemble_mic<'a>(
         &mut self,
-        source: &'a str,
-    ) -> Result<Vec<Microinstruction>, MALParsingError<'a>> {
-        let parser = MALParser::new();
-        let microinstructions = parser.parse_instructions(source)?;
+        source_map: &'a SourceMap,
+    ) -> Result<Vec<Microinstruction>, MALParsingError> {
+        let parser = MALParser::new(&source_map);
+        let microinstructions = parser.parse()?;
         {
             let mut micro_mem = self.micro_mem.lock().unwrap();
             *micro_mem = MicroMem::new(

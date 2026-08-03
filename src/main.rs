@@ -6,7 +6,6 @@ mod virtual_machine;
 
 use std::{
     fmt::Display,
-    fs,
     sync::mpsc::{Sender, channel},
 };
 
@@ -19,7 +18,7 @@ use crate::{
     architecture::signals::CONTROL_SIGNAL_NAMES,
     parsers::{
         asm::{DEFAULT_KEYWORDS, Instruction, KeywordMap},
-        mal::Microinstruction,
+        better_mal::Microinstruction,
         source_map::SourceMap,
     },
     virtual_machine::{
@@ -313,9 +312,11 @@ impl MyApp {
                 s_task
                     .send((
                         (|vm: &mut VM| {
-                            let contents =
-                                fs::read_to_string(&path).map_err(|err| err.to_string())?;
-                            let mics = vm.assemble_mic(&contents).map_err(|err| err.to_string())?;
+                            let source_map = SourceMap::from_filepath(&path)
+                                .map_err(|err| format!("Falha ao ler arquivo: {}", err))?;
+                            let mics = vm
+                                .assemble_mic(&source_map)
+                                .map_err(|err| err.to_string())?;
                             Ok(VMTask::AssembleMic(mics))
                         })(&mut vm),
                         vm,
