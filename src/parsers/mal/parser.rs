@@ -4,7 +4,7 @@ use thiserror::Error;
 
 use crate::{
     architecture::{datapath::Register, signals::ControlSignals},
-    parsers::better_mal::{
+    parsers::mal::{
         mir_builder::*,
         tokenizer::{Token, TokenType, Tokenizer, TokenizerError, TokenizerErrorType},
     },
@@ -575,13 +575,9 @@ pub struct Microinstruction {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
-    use crate::parsers::mal::MALParser as OldParser;
+    use pretty_assertions::assert_eq;
 
     use super::*;
-
-    use pretty_assertions::assert_eq;
 
     #[track_caller]
     fn parse_content(content: &'static str) -> Vec<ControlSignals> {
@@ -755,34 +751,4 @@ mod tests {
         assert_err("alu := mar;", ParsingErrorType::WriteOnlyRegister("mar"));
         assert_err("0: goto 1;", ParsingErrorType::UnrecognizedLabel);
     }
-
-    // Foi observado que o parser antigo continha um bug que foi corrigido no parser novo.
-    // Ex: mar := pc; pc := pc + 1
-    // Em expressões como a acima, o parser antigo não conseguia fazer a inversão de operadores corretamente.
-    // Parser novo:   a = 6, b = 2, c = 2, mar = 1
-    // Parser antigo: a = 2, b = 2, c = 2, mar = 1
-    // Logo, o teste abaixo foi invalidado.
-
-    // #[test]
-    // fn test_equivalence() {
-    //     let source_map = SourceMap::from_filepath("./malde.mal").unwrap();
-    //     let parser1 = MALParser::new(&source_map);
-    //     let mics1 = parser1
-    //         .parse()
-    //         .unwrap()
-    //         .into_iter()
-    //         .map(|m| m.mir)
-    //         .enumerate()
-    //         .collect::<Vec<_>>();
-    //     // Parser anterior que utilizava regex
-    //     let parser2 = OldParser::new();
-    //     let mics2 = parser2
-    //         .parse_instructions(fs::read_to_string("./malde.mal").unwrap().as_str())
-    //         .unwrap()
-    //         .into_iter()
-    //         .map(|m| m.mir)
-    //         .enumerate()
-    //         .collect::<Vec<_>>();
-    //     assert_eq!(mics1, mics2);
-    // }
 }

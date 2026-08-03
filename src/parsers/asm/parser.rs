@@ -38,9 +38,9 @@ impl<'a> ASMParser<'a> {
         }
     }
 
-    pub fn parse(mut self) -> Result<ParserResult, ASMParsingError> {
+    pub fn parse(mut self) -> Result<ASMParserResult, ASMParsingError> {
         self.inner_parse()
-            .map(|_| ParserResult {
+            .map(|_| ASMParserResult {
                 data_mem: self.data_mem,
                 ins_mem: self.ins_mem,
                 instructions: self.ins_list,
@@ -426,7 +426,7 @@ impl Display for ASMParsingError {
 }
 
 #[derive(Debug, Default)]
-pub struct ParserResult {
+pub struct ASMParserResult {
     pub data_mem: Vec<u16>,
     pub ins_mem: Vec<u16>,
     pub instructions: Vec<Instruction>,
@@ -506,7 +506,7 @@ mod tests {
             ",
         );
         let parser = ASMParser::new(&source_map, def_keys, DATA_SEGMENT_START);
-        let ParserResult {
+        let ASMParserResult {
             data_mem: data,
             ins_mem: ins,
             ..
@@ -547,7 +547,7 @@ mod tests {
                 .map_err(|err| err.error_type);
         println!("{:?}", tokens);
         let parser = ASMParser::new(&source_map, def_keys, DATA_SEGMENT_START);
-        let ParserResult {
+        let ASMParserResult {
             data_mem: data,
             ins_mem: ins,
             ..

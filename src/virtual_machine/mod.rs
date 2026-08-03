@@ -19,10 +19,8 @@ use crate::{
         memory::{Memory, MemoryArray},
     },
     parsers::{
-        asm::{
-            ASMParser, ASMParsingError, Instruction, KeywordMap, ParserResult as ASMParsingResult,
-        },
-        better_mal::{MALParser, Microinstruction, MALParsingError},
+        asm::{ASMParser, ASMParserResult, ASMParsingError, Instruction, KeywordMap},
+        mal::{MALParser, MALParsingError, Microinstruction},
         source_map::SourceMap,
     },
 };
@@ -96,7 +94,7 @@ impl VM {
         source_map: &'a SourceMap,
     ) -> Result<Vec<Instruction>, ASMParsingError> {
         let parser = ASMParser::new(source_map, self.keywords.clone(), DATA_SEGMENT_START);
-        let ASMParsingResult {
+        let ASMParserResult {
             data_mem,
             ins_mem,
             instructions,
@@ -114,14 +112,16 @@ impl VM {
             match (input_type, request_type) {
                 (VMInputResponse::Int(n), VMInputRequestType::Int) => {
                     if (VM::MIN_INT..=VM::MAX_INT).contains(&n) {
-                        self.cpu.set_register(Register::Ac.index().unwrap(), n as u16);
+                        self.cpu
+                            .set_register(Register::Ac.index().unwrap(), n as u16);
                         Ok(())
                     } else {
                         Err(VMInputError::InvalidNumber(n, VM::MIN_INT, VM::MAX_INT))
                     }
                 }
                 (VMInputResponse::Char(c), VMInputRequestType::Char) => {
-                    self.cpu.set_register(Register::Ac.index().unwrap(), c as u8 as u16);
+                    self.cpu
+                        .set_register(Register::Ac.index().unwrap(), c as u8 as u16);
                     Ok(())
                 }
                 (VMInputResponse::String(s), VMInputRequestType::String) => {

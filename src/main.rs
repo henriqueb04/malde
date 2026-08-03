@@ -9,7 +9,7 @@ use std::{
     sync::mpsc::{Sender, channel},
 };
 
-use eframe::egui::{self, Color32};
+use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 use egui_inbox::UiInbox;
 use log::{debug, error};
@@ -18,7 +18,7 @@ use crate::{
     architecture::signals::CONTROL_SIGNAL_NAMES,
     parsers::{
         asm::{DEFAULT_KEYWORDS, Instruction, KeywordMap},
-        better_mal::Microinstruction,
+        mal::Microinstruction,
         source_map::SourceMap,
     },
     virtual_machine::{
@@ -464,7 +464,7 @@ impl MyApp {
                         VMInputRequestType::String => "Digite um texto:",
                     });
                     ui.add(egui::TextEdit::singleline(&mut self.input_modal_text));
-                    ui.colored_label(Color32::RED, self.input_model_error.clone());
+                    ui.colored_label(egui::Color32::RED, self.input_model_error.clone());
                     if ui.button("Enviar").clicked() {
                         match request_type {
                             VMInputRequestType::Int => {
