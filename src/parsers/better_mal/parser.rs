@@ -46,6 +46,8 @@ impl<'a> MALParser<'a> {
     inv :: "inv" "(" register ")"
     */
     pub fn parse(mut self) -> Result<Vec<Microinstruction>, MALParsingError> {
+        self.burn_newlines()
+            .map_err(|err| MALParsingError::new(self.source_map, err))?;
         while self.lexer.peek().is_some() {
             self.parse_clock()
                 .map_err(|err| MALParsingError::new(self.source_map, err))?;
@@ -257,6 +259,7 @@ impl<'a> MALParser<'a> {
             .filter(|reg_b| reg_b.0 == Register::Alu)
             .or_else(|| (reg_a.0 == Register::Alu).then_some(&reg_a))
         {
+            // Se tentar usar ALU como operando
             return Err(ParsingError {
                 span: alu.1.clone(),
                 error_type: ParsingErrorType::NotARealRegister,
@@ -469,11 +472,7 @@ impl<'a> MALParser<'a> {
             return Ok(());
         }
         self.expect(TokenType::Newline)?;
-        while let Some(typ) = self.peek_kind()?
-            && *typ == TokenType::Newline
-        {
-            self.next_unmapped("newline")?;
-        }
+        self.burn_newlines()?;
         Ok(())
     }
     fn expect(&mut self, typ: TokenType) -> Result<Token, ParsingError> {
@@ -485,6 +484,14 @@ impl<'a> MALParser<'a> {
             });
         }
         Ok(t)
+    }
+    fn burn_newlines(&mut self) -> Result<(), ParsingError> {
+        while let Some(typ) = self.peek_kind()?
+            && *typ == TokenType::Newline
+        {
+            self.next_unmapped("quebra de linha")?;
+        }
+        Ok(())
     }
 }
 
@@ -689,22 +696,33 @@ mod tests {
         )
     }
 
-    fn test_equivalence() {
-        let source_map = SourceMap::from_filepath("./malde.mal").unwrap();
-        let parser1 = MALParser::new(&source_map);
-        let mics1 = parser1
-            .parse()
-            .unwrap()
-            .into_iter()
-            .map(|m| m.mir)
-            .collect::<Vec<_>>();
-        let parser2 = OldParser::new();
-        let mics2 = parser2
-            .parse_instructions(fs::read_to_string("./malde.mal").unwrap().as_str())
-            .unwrap()
-            .into_iter()
-            .map(|m| m.mir)
-            .collect::<Vec<_>>();
-        assert_eq!(mics1, mics2);
-    }
+    // Foi observado que o parser antigo continha um bug que foi corrigido no parser novo.
+    // Ex: mar := pc; pc := pc + 1
+    // Em expressões como a acima, o parser antigo não conseguia fazer a inversão de operadores corretamente.
+    // Parser novo:   a = 6, b = 2, c = 2, mar = 1
+    // Parser antigo: a = 2, b = 2, c = 2, mar = 1
+    // Logo, o teste abaixo foi invalidado.
+
+    // #[test]
+    // fn test_equivalence() {
+    //     let source_map = SourceMap::from_filepath("./malde.mal").unwrap();
+    //     let parser1 = MALParser::new(&source_map);
+    //     let mics1 = parser1
+    //         .parse()
+    //         .unwrap()
+    //         .into_iter()
+    //         .map(|m| m.mir)
+    //         .enumerate()
+    //         .collect::<Vec<_>>();
+    //     // Parser anterior que utilizava regex
+    //     let parser2 = OldParser::new();
+    //     let mics2 = parser2
+    //         .parse_instructions(fs::read_to_string("./malde.mal").unwrap().as_str())
+    //         .unwrap()
+    //         .into_iter()
+    //         .map(|m| m.mir)
+    //         .enumerate()
+    //         .collect::<Vec<_>>();
+    //     assert_eq!(mics1, mics2);
+    // }
 }
