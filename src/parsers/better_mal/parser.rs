@@ -30,21 +30,6 @@ impl<'a> MALParser<'a> {
         }
     }
 
-    /*
-    microprogram :: clock*
-    clock :: (identifier ":")? statement* \n
-    statement :: ( syscall | wr | rd | goto_expr | conditional | assignment ) ";"
-    goto_expr :: then? goto identifier
-    conditional :: if condition goto_expr
-    condition :: "n" | "z"
-    assignment :: destregister ":=" shifted | operation
-    shifted :: shift "(" operation ")"
-    operation :: inv | band | add | transparency
-    transparency :: register
-    add :: register "+" register
-    band :: "band" "(" register "," register ")"
-    inv :: "inv" "(" register ")"
-    */
     pub fn parse(mut self) -> Result<Vec<Microinstruction>, MALParsingError> {
         self.burn_tokens(TokenType::Newline)
             .map_err(|err| MALParsingError::new(self.source_map, err))?;
@@ -119,7 +104,7 @@ impl<'a> MALParser<'a> {
                     self.read_conditional(&mut mir, first)?;
                 }
                 TokenType::Register(..) => {
-                    self.read_assingment(&mut mir, first)?;
+                    self.read_assignment(&mut mir, first)?;
                 }
                 _ => {
                     return Err(ParsingError {
@@ -186,7 +171,7 @@ impl<'a> MALParser<'a> {
         Ok(())
     }
 
-    fn read_assingment(
+    fn read_assignment(
         &mut self,
         mir: &mut ControlSignalsBuilder,
         first: Token,
