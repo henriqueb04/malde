@@ -12,7 +12,7 @@ use crate::{
     architecture::{
         Cpu,
         control::MicroMem,
-        datapath::{DataRegisters, RegisterBank},
+        datapath::DataRegisters,
         events::EventHandler,
         memory::{Memory, MemoryArray},
     },
@@ -40,6 +40,7 @@ pub struct VM {
     pc: usize,
     prev_pc: usize,
     stdout: String,
+    info_print: bool,
     on_print: Option<Box<dyn Fn(String) + Send>>,
     // cur_instruction: usize,
 }
@@ -62,6 +63,7 @@ impl VM {
             pc: 0,
             prev_pc: 0,
             stdout: String::new(),
+            info_print: true,
             on_print: None,
         }
     }
@@ -158,6 +160,9 @@ impl VM {
         &self.state
     }
 
+    pub fn set_info_print(&mut self, info_print: bool) {
+        self.info_print = info_print;
+    }
     pub fn set_on_print(&mut self, on_print: Box<dyn Fn(String) + Send>) {
         self.on_print = Some(on_print);
     }
@@ -166,7 +171,6 @@ impl VM {
         if let Some(on_print) = &self.on_print {
             (on_print)(s.to_string());
         }
-        print!("{}", s);
     }
 
     // Memory
@@ -292,7 +296,9 @@ impl VM {
             if self.state == VMState::Halted {
                 self.state = VMState::Active;
             }
-            self.print_to_stdout("\n\n----- programa reiniciado -----\n\n");
+            if self.info_print {
+                self.print_to_stdout("\n\n----- programa reiniciado -----\n\n");
+            }
         }
     }
     pub fn registers(&self) -> DataRegisters {
@@ -356,7 +362,9 @@ impl VM {
                 Some(VMInputRequestType::String)
             }
             Syscalls::HALT => {
-                self.print_to_stdout("\n\n----- programa encerrado (0) -----\n\n");
+                if self.info_print {
+                    self.print_to_stdout("\n\n----- programa encerrado (0) -----\n\n");
+                }
                 self.state = VMState::Halted;
                 None
             }

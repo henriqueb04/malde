@@ -17,6 +17,7 @@ pub fn execute(
     microprogram: String,
     macroprogram: String,
     keywords: Option<KeywordMap>,
+    no_info_print: bool,
 ) -> Result<()> {
     let mut vm = VM::new();
     let source_map1 = SourceMap::from_filepath(&microprogram)
@@ -28,10 +29,12 @@ pub fn execute(
     let (_s_dummy_pause, r_dummy_pauser) = unbounded();
     let (s_validation, r_validation) = unbounded();
     let (s_request, r_request) = unbounded();
-    vm.set_on_print(Box::new(|_| {
+    vm.set_info_print(!no_info_print);
+    vm.set_on_print(Box::new(|msg| {
+        print!("{}", msg);
         io::stdout().flush().expect("Erro ao mostrar saída");
     }));
-    let handle = std::thread::spawn(move || {
+    std::thread::spawn(move || {
         vm.execute(
             VMExecutionType::Run,
             VMExecutionInfo {
@@ -59,7 +62,7 @@ pub fn execute(
                 Err(_) => break,
             },
             recv(r_request) -> msg => match msg {
-                Ok(request) => read_input(request)?,
+                Ok(request) => read_input(request, no_info_print)?,
                 Err(_) => break,
             },
         }
@@ -67,19 +70,21 @@ pub fn execute(
     Ok(())
 }
 
-fn read_input(request: VMInputRequest) -> Result<()> {
-    match request.typ {
-        VMInputRequestType::Int => {
-            print!("Digite um número: ");
+fn read_input(request: VMInputRequest, no_info_print: bool) -> Result<()> {
+    if !no_info_print {
+        match request.typ {
+            VMInputRequestType::Int => {
+                print!("Digite um número: ");
+            }
+            VMInputRequestType::Char => {
+                print!("Digite um caractere: ");
+            }
+            VMInputRequestType::String => {
+                print!("Digite um texto: ");
+            }
         }
-        VMInputRequestType::Char => {
-            print!("Digite um caractere: ");
-        }
-        VMInputRequestType::String => {
-            print!("Digite um texto: ");
-        }
+        io::stdout().flush().expect("Erro ao mostrar saída");
     }
-    io::stdout().flush().expect("Erro ao mostrar saída");
     let mut user_input = String::new();
     io::stdin()
         .read_line(&mut user_input)

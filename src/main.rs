@@ -33,6 +33,10 @@ pub struct Args {
     /// Arquivo de keywords para serem usadas no Assembly. Usa o formato COMANDO,OPCODE para cada linha.
     #[arg(short, long, value_name = "ARQUIVO")]
     pub keywords: Option<PathBuf>,
+
+    /// Não exibe mesagens de informação quando o programa encerra, nem mostra mensagens de requisição de entrada (ex.: "Digite um número: ")
+    #[arg(short, long)]
+    pub no_info_print: bool,
 }
 
 fn main() -> Result<()> {
@@ -50,6 +54,7 @@ fn main() -> Result<()> {
             mic.display().to_string(),
             mac.display().to_string(),
             Some(KeywordMap::default()),
+            args.no_info_print,
         )?;
         Ok(())
     } else {
@@ -66,6 +71,7 @@ fn main() -> Result<()> {
                     args.microprogram.map(|f| f.display().to_string()),
                     args.macroprogram.map(|f| f.display().to_string()),
                     None,
+                    args.no_info_print,
                 )))
             }),
         )

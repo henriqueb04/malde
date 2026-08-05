@@ -1,8 +1,6 @@
-use std::{
-    fmt::Display,
-};
+use std::fmt::Display;
 
-use crossbeam_channel::{unbounded, Sender};
+use crossbeam_channel::{Sender, unbounded};
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 use egui_inbox::UiInbox;
@@ -264,13 +262,19 @@ impl eframe::App for MyApp {
 }
 
 impl MyApp {
-    pub fn new(microprogram: Option<String>, macroprogram: Option<String>, keywords: Option<KeywordMap>) -> Self {
+    pub fn new(
+        microprogram: Option<String>,
+        macroprogram: Option<String>,
+        keywords: Option<KeywordMap>,
+        no_info_print: bool,
+    ) -> Self {
         let mut vm = VM::new();
         let stdout_inbox = UiInbox::new();
         let s_stdout = stdout_inbox.sender();
         vm.set_on_print(Box::new(move |text| {
             s_stdout.send(text).expect("Erro ao exibir saída")
         }));
+        vm.set_info_print(!no_info_print);
         MyApp {
             vm: Some(vm),
             mem_goto: Some(MemGoto::Data),
