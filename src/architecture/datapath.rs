@@ -128,11 +128,20 @@ impl Datapath {
         self.mbr = 0;
     }
 
-    pub fn registers(&self) -> &RegisterBank {
-        &self.registers
+    pub fn registers(&self) -> DataRegisters {
+        DataRegisters(self.mar, self.mbr, self.registers)
     }
     pub fn registers_mut(&mut self) -> &mut RegisterBank {
         &mut self.registers
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DataRegisters(pub u16, pub u16, pub RegisterBank);
+
+impl Default for DataRegisters {
+    fn default() -> Self {
+        DataRegisters(0, 0, Register::DEFAULT_VALUES)
     }
 }
 
@@ -221,7 +230,7 @@ impl Register {
             Self::D => Some(13),
             Self::E => Some(14),
             Self::F => Some(15),
-            _ => None
+            _ => None,
         }
     }
     pub const fn name(&self) -> &'static str {

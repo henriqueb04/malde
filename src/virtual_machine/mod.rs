@@ -1,20 +1,18 @@
-use thiserror::Error;
-
 use std::{
     collections::HashSet,
     fmt::Debug,
     mem::discriminant,
-    sync::{
-        Arc, Mutex,
-        mpsc::{Receiver, Sender, channel},
-    },
+    sync::{Arc, Mutex},
 };
+
+use crossbeam_channel::{Receiver, Sender, unbounded};
+use thiserror::Error;
 
 use crate::{
     architecture::{
         Cpu,
         control::MicroMem,
-        datapath::RegisterBank,
+        datapath::{DataRegisters, RegisterBank},
         events::EventHandler,
         memory::{Memory, MemoryArray},
     },
@@ -244,15 +242,16 @@ impl VM {
                 if self.microinstructions()[prev_mpc].mir.syscall
                     && let Some(input_request) = self.execute_syscall()
                 {
-                    let (input_s, input_r) = channel::<VMInputResponse>();
+                    let (input_s, input_r) = unbounded::<VMInputResponse>();
                     (execution_info.on_input_request)(VMInputRequest {
                         typ: input_request,
                         sender: input_s,
                     });
                     loop {
-                        let input = input_r
-                            .recv()
-                            .expect("Entrada requisitada, mas não recebida");
+                        let Ok(input) = input_r.recv() else {
+                            self.state = VMState::Halted;
+                            return (0, 0);
+                        };
                         match self.handle_input(input).map_err(|err| err.to_string()) {
                             Ok(..) => {
                                 (execution_info.on_validation)(Ok(()));
@@ -296,12 +295,12 @@ impl VM {
             self.print_to_stdout("\n\n----- programa reiniciado -----\n\n");
         }
     }
-    pub fn registers(&self) -> (u16, u16, RegisterBank) {
+    pub fn registers(&self) -> DataRegisters {
         self.cpu.get_registers()
     }
 
     fn execute_syscall(&mut self) -> Option<VMInputRequestType> {
-        let (_, _, registers) = self.cpu.get_registers();
+        let DataRegisters(_, _, registers) = self.cpu.get_registers();
         match registers[Register::E.index().unwrap()] {
             Syscalls::PRINT_INT => {
                 let s = format!("{}", registers[Register::Ac.index().unwrap()] as i16);
@@ -413,7 +412,7 @@ pub struct VMResponse {
     pub prev_pc: usize,
     pub events: EventHandler,
     pub state: VMState,
-    pub registers: (u16, u16, RegisterBank),
+    pub registers: DataRegisters,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
