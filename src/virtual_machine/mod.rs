@@ -92,8 +92,9 @@ impl VM {
     pub fn assemble_mac<'a>(
         &mut self,
         source_map: &'a SourceMap,
+        keywords: KeywordMap,
     ) -> Result<Vec<Instruction>, ASMParsingError> {
-        let parser = ASMParser::new(source_map, self.keywords.clone(), DATA_SEGMENT_START);
+        let parser = ASMParser::new(source_map, keywords, DATA_SEGMENT_START);
         let ASMParserResult {
             data_mem,
             ins_mem,
@@ -150,12 +151,6 @@ impl VM {
         res
     }
 
-    pub fn microinstructions(&self) -> &Vec<Microinstruction> {
-        &self.microinstructions
-    }
-    pub fn instructions(&self) -> &Vec<Instruction> {
-        &self.instructions
-    }
     pub fn state(&self) -> &VMState {
         &self.state
     }
@@ -243,7 +238,7 @@ impl VM {
         match &self.state {
             VMState::Active => {
                 let (mpc, prev_mpc) = self.cpu.advance_microinstruction(&mut self.events);
-                if self.microinstructions()[prev_mpc].mir.syscall
+                if self.microinstructions[prev_mpc].mir.syscall
                     && let Some(input_request) = self.execute_syscall()
                 {
                     let (input_s, input_r) = unbounded::<VMInputResponse>();

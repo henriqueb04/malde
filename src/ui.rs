@@ -182,9 +182,10 @@ impl eframe::App for MyApp {
                                 let res2 = ui.add(
                                     egui::TextEdit::singleline(&mut pair.1).desired_width(200.0),
                                 );
-                                if let Some(err) = KeywordMap::validate_pair(pair)
-                                    .err()
-                                    .map(|err| err.to_string())
+                                if let Some(err) =
+                                    KeywordMap::validate_pair(&pair.0.trim(), &pair.1.trim())
+                                        .err()
+                                        .map(|err| err.to_string())
                                 {
                                     invalid = true;
                                     ui.painter().rect_stroke(
@@ -232,6 +233,14 @@ impl eframe::App for MyApp {
             });
             if modal.should_close() && !invalid {
                 self.config_modal_show = false;
+                match self.config_modal_keywords.clone().try_into() {
+                    Ok(keywords) => self.keywords = keywords,
+                    Err(err) => self.show_error_modal(format!(
+                        "Erro ao processar keyword {}: {}",
+                        err.0 + 1,
+                        err.1
+                    )),
+                }
             }
         }
         if let Some(text) = &self.msg_modal_text {
@@ -247,14 +256,6 @@ impl eframe::App for MyApp {
             });
             if modal.should_close() {
                 self.msg_modal_text = None;
-                match self.config_modal_keywords.clone().try_into() {
-                    Ok(keywords) => self.keywords = keywords,
-                    Err(err) => self.show_error_modal(format!(
-                        "Erro ao processar keyword {}: {}",
-                        err.0 + 1,
-                        err.1
-                    )),
-                }
             }
         }
         self.input_request_ui(ui);
@@ -268,6 +269,8 @@ impl MyApp {
         keywords: Option<KeywordMap>,
         no_info_print: bool,
     ) -> Self {
+        let keywords = keywords.unwrap_or_default();
+        let config_modal_keywords = keywords.str_values();
         let mut vm = VM::new();
         let stdout_inbox = UiInbox::new();
         let s_stdout = stdout_inbox.sender();
@@ -279,12 +282,10 @@ impl MyApp {
             vm: Some(vm),
             mem_goto: Some(MemGoto::Data),
             stdout_inbox,
-            config_modal_keywords: Vec::from(
-                DEFAULT_KEYWORDS.map(|(name, bin)| (name.to_string(), bin.to_string())),
-            ),
             microprogram,
             macroprogram,
-            keywords: keywords.unwrap_or_default(),
+            keywords,
+            config_modal_keywords,
             ..Default::default()
         }
     }
@@ -315,6 +316,7 @@ impl MyApp {
             self.task_inbox = UiInbox::new();
             let s_task = self.task_inbox.sender();
             let path = path.to_string();
+            let keywords = self.keywords.clone();
             std::thread::spawn(move || {
                 s_task
                     .send((
@@ -322,7 +324,7 @@ impl MyApp {
                             let source_map = SourceMap::from_filepath(&path)
                                 .map_err(|err| format!("Falha ao ler arquivo: {}", err))?;
                             let ins = vm
-                                .assemble_mac(&source_map)
+                                .assemble_mac(&source_map, keywords)
                                 .map_err(|err| err.to_string())?;
                             Ok(VMTask::AssembleMac(ins))
                         })(&mut vm),

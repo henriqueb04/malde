@@ -8,7 +8,7 @@ mod virtual_machine;
 
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use clap::Parser;
 use eframe::egui;
 use ui::MyApp;
@@ -42,6 +42,21 @@ pub struct Args {
 fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
+    let keymaps = args
+        .keywords
+        .map(|p| KeywordMap::from_filename(&p.display().to_string()))
+        .transpose()
+        .map_err(|err| {
+            anyhow!(
+                "Erro ao ler arquivo de keywords{}: {}",
+                if let Some(l) = err.0 {
+                    format!(" (linha {})", l + 1)
+                } else {
+                    String::new()
+                },
+                err.1
+            )
+        })?;
     if args.run {
         // CLI execution
         let mic = args
@@ -53,7 +68,7 @@ fn main() -> Result<()> {
         cli::execute(
             mic.display().to_string(),
             mac.display().to_string(),
-            Some(KeywordMap::default()),
+            keymaps,
             args.no_info_print,
         )?;
         Ok(())
@@ -70,7 +85,7 @@ fn main() -> Result<()> {
                 Ok(Box::new(MyApp::new(
                     args.microprogram.map(|f| f.display().to_string()),
                     args.macroprogram.map(|f| f.display().to_string()),
-                    None,
+                    keymaps,
                     args.no_info_print,
                 )))
             }),

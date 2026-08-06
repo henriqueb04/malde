@@ -24,8 +24,9 @@ pub fn execute(
         .with_context(|| "Erro ao ler arquivo de microprograma.")?;
     let source_map2 = SourceMap::from_filepath(&macroprogram)
         .with_context(|| "Erro ao ler arquivo de macroprograma.")?;
-    vm.assemble_mac(&source_map2)?;
+    vm.assemble_mac(&source_map2, keywords.unwrap_or_default())?;
     vm.assemble_mic(&source_map1)?;
+
     let (_s_dummy_pause, r_dummy_pauser) = unbounded();
     let (s_validation, r_validation) = unbounded();
     let (s_request, r_request) = unbounded();
@@ -34,6 +35,7 @@ pub fn execute(
         print!("{}", msg);
         io::stdout().flush().expect("Erro ao mostrar saída");
     }));
+
     std::thread::spawn(move || {
         vm.execute(
             VMExecutionType::Run,
@@ -54,6 +56,7 @@ pub fn execute(
             },
         );
     });
+
     loop {
         select_biased! {
             recv(r_validation) -> msg => match msg {
