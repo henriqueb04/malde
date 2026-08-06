@@ -10,7 +10,10 @@ use control::{ControlUnit, MicroMem};
 use datapath::Datapath;
 use memory::Memory;
 
-use crate::architecture::{datapath::{DataRegisters, RegisterBank}, events::EventHandler};
+use crate::architecture::{
+    datapath::{DataRegisters, RegisterBank},
+    events::EventHandler,
+};
 
 #[derive(Debug)]
 pub struct Cpu {
