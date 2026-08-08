@@ -1,6 +1,6 @@
 use std::{
     collections::HashSet,
-    io::{self, Write},
+    io::{self, Write}, path::PathBuf,
 };
 
 use anyhow::{Context, Error, Result, bail};
@@ -14,15 +14,15 @@ use crate::{
 };
 
 pub fn execute(
-    microprogram: String,
-    macroprogram: String,
+    microprogram: PathBuf,
+    macroprogram: PathBuf,
     keywords: Option<KeywordMap>,
     no_info_print: bool,
 ) -> Result<()> {
     let mut vm = VM::new();
-    let source_map1 = SourceMap::from_filepath(&microprogram)
+    let source_map1 = SourceMap::from_filepath(microprogram)
         .with_context(|| "Erro ao ler arquivo de microprograma.")?;
-    let source_map2 = SourceMap::from_filepath(&macroprogram)
+    let source_map2 = SourceMap::from_filepath(macroprogram)
         .with_context(|| "Erro ao ler arquivo de macroprograma.")?;
     vm.assemble_mac(&source_map2, keywords.unwrap_or_default())?;
     vm.assemble_mic(&source_map1)?;

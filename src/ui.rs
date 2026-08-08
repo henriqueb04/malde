@@ -1,7 +1,8 @@
-use std::fmt::Display;
+use std::{fmt::Display, fs, path::PathBuf};
 
+use anyhow::anyhow;
 use crossbeam_channel::{Sender, unbounded};
-use eframe::egui;
+use eframe::{egui, wgpu::naga::keywords};
 use egui_extras::{Column, TableBuilder};
 use egui_inbox::UiInbox;
 use log::{debug, error};
@@ -9,7 +10,7 @@ use log::{debug, error};
 use crate::{
     architecture::{datapath::DataRegisters, signals::CONTROL_SIGNAL_NAMES},
     parsers::{
-        asm::{DEFAULT_KEYWORDS, Instruction, KeywordMap},
+        asm::{Instruction, KeywordMap},
         mal::Microinstruction,
         source_map::SourceMap,
     },
@@ -37,8 +38,8 @@ pub struct MyApp {
     keywords: KeywordMap,
     breaks_mic: Vec<bool>,
     breaks_mac: Vec<bool>,
-    macroprogram: Option<String>,
-    microprogram: Option<String>,
+    macroprogram: Option<PathBuf>,
+    microprogram: Option<PathBuf>,
     config_modal_show: bool,
     config_modal_keywords: Vec<(String, String)>,
     msg_modal_text: Option<String>,
@@ -130,29 +131,39 @@ impl eframe::App for MyApp {
                                 && let Some(path) = rfd::FileDialog::new().pick_file()
                             {
                                 debug!("Macroprograma: {}", path.display());
-                                self.macroprogram = Some(path.display().to_string());
+                                self.macroprogram = Some(path);
                             }
-                            ui.label(self.macroprogram.as_deref().unwrap_or(""));
+                            ui.label(
+                                self.macroprogram
+                                    .as_ref()
+                                    .map(|p| p.to_string_lossy())
+                                    .unwrap_or_default(),
+                            );
                             ui.end_row();
                             if ui.button("🗁 Carregar arquivo MAL").clicked()
                                 && let Some(path) = rfd::FileDialog::new().pick_file()
                             {
                                 debug!("Microprograma: {}", path.display());
-                                self.microprogram = Some(path.display().to_string());
+                                self.microprogram = Some(path);
                             }
-                            ui.label(self.microprogram.as_deref().unwrap_or(""));
+                            ui.label(
+                                self.microprogram
+                                    .as_ref()
+                                    .map(|p| p.to_string_lossy())
+                                    .unwrap_or_default(),
+                            );
                         });
                     ui.add_enabled_ui(self.vm.is_some(), |ui| {
                         ui.horizontal(|ui| {
-                            if let Some(micro_path) = self.microprogram.clone()
+                            if let Some(micro_path) = &self.microprogram
                                 && ui.button("🔧 Montar Microprograma").clicked()
                             {
-                                self.assemble_micro(micro_path.as_str());
+                                self.assemble_micro(micro_path.clone());
                             }
-                            if let Some(macro_path) = self.macroprogram.clone()
+                            if let Some(macro_path) = &self.macroprogram
                                 && ui.button("🔧 Montar Macroprograma").clicked()
                             {
-                                self.assemble_macro(macro_path.as_str());
+                                self.assemble_macro(macro_path.clone());
                             }
                         });
                     });
@@ -213,6 +224,25 @@ impl eframe::App for MyApp {
                     if let Some(to_remove) = to_remove {
                         self.config_modal_keywords.remove(to_remove);
                     }
+                    egui::Sides::new().show(
+                        ui,
+                        |ui| {
+                            if ui.button("Importar").clicked()
+                                && let Some(path) = rfd::FileDialog::new().pick_file()
+                            {
+                                if let Err(err) = self.import_keywords(path) {
+                                    self.show_error_modal(err.to_string());
+                                }
+                            }
+                        },
+                        |ui| {
+                            if ui.button("Exportar").clicked()
+                                && let Some(path) = rfd::FileDialog::new().save_file()
+                            {
+                                todo!();
+                            }
+                        },
+                    );
                     ui.with_layout(
                         egui::Layout::centered_and_justified(egui::Direction::TopDown),
                         |ui| {
@@ -264,8 +294,8 @@ impl eframe::App for MyApp {
 
 impl MyApp {
     pub fn new(
-        microprogram: Option<String>,
-        macroprogram: Option<String>,
+        microprogram: Option<PathBuf>,
+        macroprogram: Option<PathBuf>,
         keywords: Option<KeywordMap>,
         no_info_print: bool,
     ) -> Self {
@@ -289,16 +319,15 @@ impl MyApp {
             ..Default::default()
         }
     }
-    fn assemble_micro(&mut self, path: &str) {
+    fn assemble_micro(&mut self, path: PathBuf) {
         if let Some(mut vm) = self.vm.take() {
             self.task_inbox = UiInbox::new();
             let s_task = self.task_inbox.sender();
-            let path = path.to_string();
             std::thread::spawn(move || {
                 s_task
                     .send((
                         (|vm: &mut VM| {
-                            let source_map = SourceMap::from_filepath(&path)
+                            let source_map = SourceMap::from_filepath(path)
                                 .map_err(|err| format!("Falha ao ler arquivo: {}", err))?;
                             let mics = vm
                                 .assemble_mic(&source_map)
@@ -311,17 +340,17 @@ impl MyApp {
             });
         }
     }
-    fn assemble_macro(&mut self, path: &str) {
+    fn assemble_macro(&mut self, path: PathBuf) {
         if let Some(mut vm) = self.vm.take() {
             self.task_inbox = UiInbox::new();
             let s_task = self.task_inbox.sender();
-            let path = path.to_string();
+            let path = path.clone();
             let keywords = self.keywords.clone();
             std::thread::spawn(move || {
                 s_task
                     .send((
                         (|vm: &mut VM| {
-                            let source_map = SourceMap::from_filepath(&path)
+                            let source_map = SourceMap::from_filepath(path)
                                 .map_err(|err| format!("Falha ao ler arquivo: {}", err))?;
                             let ins = vm
                                 .assemble_mac(&source_map, keywords)
@@ -416,6 +445,23 @@ impl MyApp {
 
     fn print_to_stdout(&mut self, text: &str) {
         self.stdout.push_str(text);
+    }
+
+    fn import_keywords(&mut self, path: PathBuf) -> anyhow::Result<()> {
+        let keywords = KeywordMap::from_filename(path).map_err(|err| {
+            anyhow!(
+                "Erro ao ler arquivo de keywords{}: {}",
+                if let Some(l) = err.0 {
+                    format!(" (linha {})", l + 1)
+                } else {
+                    String::new()
+                },
+                err.1
+            )
+        })?;
+        self.config_modal_keywords = keywords.str_values();
+        self.keywords = keywords;
+        Ok(())
     }
 
     ////////////

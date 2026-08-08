@@ -44,7 +44,7 @@ fn main() -> Result<()> {
     let args = Args::parse();
     let keymaps = args
         .keywords
-        .map(|p| KeywordMap::from_filename(&p.display().to_string()))
+        .map(|p| KeywordMap::from_filename(p))
         .transpose()
         .map_err(|err| {
             anyhow!(
@@ -66,8 +66,8 @@ fn main() -> Result<()> {
             .macroprogram
             .context("É necessário prover um arquivo Assembly usando --macroprogram")?;
         cli::execute(
-            mic.display().to_string(),
-            mac.display().to_string(),
+            mic,
+            mac,
             keymaps,
             args.no_info_print,
         )?;
@@ -83,8 +83,8 @@ fn main() -> Result<()> {
             options,
             Box::new(|_cc| {
                 Ok(Box::new(MyApp::new(
-                    args.microprogram.map(|f| f.display().to_string()),
-                    args.macroprogram.map(|f| f.display().to_string()),
+                    args.microprogram,
+                    args.macroprogram,
                     keymaps,
                     args.no_info_print,
                 )))

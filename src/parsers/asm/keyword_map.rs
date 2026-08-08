@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs};
+use std::{collections::HashMap, fs, path::PathBuf};
 
 use thiserror::Error;
 
@@ -107,7 +107,7 @@ impl KeywordMap {
         self.str_values.clone()
     }
 
-    pub fn from_filename(path: &str) -> Result<Self, (Option<usize>, KeywordMapError)> {
+    pub fn from_filename(path: PathBuf) -> Result<Self, (Option<usize>, KeywordMapError)> {
         let content = fs::read_to_string(path).map_err(|err| (None, err.into()))?;
         let mut map = HashMap::new();
         let mut str_values = Vec::new();

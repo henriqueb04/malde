@@ -1,24 +1,24 @@
-use std::{fmt::Display, fs, io, iter::Peekable, str::Chars};
+use std::{fmt::Display, fs, io, iter::Peekable, path::PathBuf, str::Chars};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceMap {
-    pub filepath: String,
+    pub filepath: Option<PathBuf>,
     pub content: String,
     line_indices: Vec<usize>,
 }
 
 impl SourceMap {
-    pub fn from_filepath(filepath: &str) -> Result<Self, io::Error> {
-        let content = fs::read_to_string(filepath)?;
+    pub fn from_filepath(filepath: PathBuf) -> Result<Self, io::Error> {
+        let content = fs::read_to_string(&filepath)?;
         Ok(SourceMap {
-            filepath: filepath.to_string(),
+            filepath: Some(filepath),
             line_indices: get_line_indices(&content),
             content,
         })
     }
     pub fn from_content(content: &str) -> Self {
         SourceMap {
-            filepath: String::new(),
+            filepath: None,
             content: content.to_string(),
             line_indices: get_line_indices(content),
         }
