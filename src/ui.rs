@@ -184,93 +184,96 @@ impl eframe::App for MyApp {
                 ui.heading("Instruções (Assembly)");
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     let mut to_remove = None;
-                    ui.vertical(|ui| {
-                        for (i, pair) in self.config_modal_keywords.iter_mut().enumerate() {
-                            ui.horizontal(|ui| {
-                                let res1 = ui.add(
-                                    egui::TextEdit::singleline(&mut pair.0).desired_width(190.0),
-                                );
-                                let res2 = ui.add(
-                                    egui::TextEdit::singleline(&mut pair.1).desired_width(200.0),
-                                );
-                                if let Some(err) =
-                                    KeywordMap::validate_pair(&pair.0.trim(), &pair.1.trim())
-                                        .err()
-                                        .map(|err| err.to_string())
-                                {
-                                    invalid = true;
-                                    ui.painter().rect_stroke(
-                                        res1.rect,
-                                        ui.style().visuals.widgets.hovered.corner_radius,
-                                        egui::Stroke::new(2.0, egui::Color32::RED),
-                                        egui::StrokeKind::Middle,
+                    ui.horizontal(|ui| {
+                        ui.vertical(|ui| {
+                            for (i, pair) in self.config_modal_keywords.iter_mut().enumerate() {
+                                ui.horizontal(|ui| {
+                                    let res1 = ui.add(
+                                        egui::TextEdit::singleline(&mut pair.0)
+                                            .desired_width(190.0),
                                     );
-                                    ui.painter().rect_stroke(
-                                        res2.rect,
-                                        ui.style().visuals.widgets.hovered.corner_radius,
-                                        egui::Stroke::new(2.0, egui::Color32::RED),
-                                        egui::StrokeKind::Middle,
+                                    let res2 = ui.add(
+                                        egui::TextEdit::singleline(&mut pair.1)
+                                            .desired_width(200.0),
                                     );
-                                    res1.on_hover_text(&err);
-                                    res2.on_hover_text(&err);
+                                    if let Some(err) =
+                                        KeywordMap::validate_pair(&pair.0.trim(), &pair.1.trim())
+                                            .err()
+                                            .map(|err| err.to_string())
+                                    {
+                                        invalid = true;
+                                        ui.painter().rect_stroke(
+                                            res1.rect,
+                                            ui.style().visuals.widgets.hovered.corner_radius,
+                                            egui::Stroke::new(2.0, egui::Color32::RED),
+                                            egui::StrokeKind::Middle,
+                                        );
+                                        ui.painter().rect_stroke(
+                                            res2.rect,
+                                            ui.style().visuals.widgets.hovered.corner_radius,
+                                            egui::Stroke::new(2.0, egui::Color32::RED),
+                                            egui::StrokeKind::Middle,
+                                        );
+                                        res1.on_hover_text(&err);
+                                        res2.on_hover_text(&err);
+                                    }
+                                    if ui.button("🗙").clicked() {
+                                        to_remove = Some(i);
+                                    }
+                                });
+                            }
+                            if let Some(to_remove) = to_remove {
+                                self.config_modal_keywords.remove(to_remove);
+                            }
+                            ui.centered_and_justified(|ui| {
+                                if ui.button("+").clicked() {
+                                    self.config_modal_keywords
+                                        .push((String::new(), String::new()));
                                 }
-                                if ui.button("🗙").clicked() {
-                                    to_remove = Some(i);
-                                }
-                                ui.add_space(10.0);
                             });
-                        }
-                    });
-                    if let Some(to_remove) = to_remove {
-                        self.config_modal_keywords.remove(to_remove);
-                    }
-                    egui::Sides::new().show(
-                        ui,
-                        |ui| {
-                            if ui.button("Importar").clicked()
-                                && let Some(path) = rfd::FileDialog::new().pick_file()
-                            {
-                                if let Err(err) = self.import_keywords(path) {
-                                    self.show_error_modal(err.to_string());
-                                }
-                            }
-                        },
-                        |ui| {
-                            if ui.button("Exportar").clicked()
-                                && let Some(path) = rfd::FileDialog::new().save_file()
-                            {
-                                todo!();
-                            }
-                        },
-                    );
-                    ui.with_layout(
-                        egui::Layout::centered_and_justified(egui::Direction::TopDown),
-                        |ui| {
-                            if ui.button("+").clicked() {
-                                self.config_modal_keywords
-                                    .push((String::new(), String::new()));
-                            }
-                        },
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
-                        ui.add_enabled_ui(!invalid, |ui| {
-                            if ui.button("Ok").clicked() && !invalid {
-                                ui.close();
-                            }
-                        })
+                            let available_width = ui.available_width();
+                            egui::Grid::new("grid keywords import export")
+                                .num_columns(2)
+                                .min_col_width(available_width / 2.0)
+                                .show(ui, |ui| {
+                                    ui.centered_and_justified(|ui| {
+                                        if ui.button("Importar").clicked()
+                                            && let Some(path) = rfd::FileDialog::new().pick_file()
+                                        {
+                                            if let Err(err) = self.import_keywords(path) {
+                                                self.show_error_modal(err.to_string());
+                                            }
+                                        }
+                                    });
+                                    ui.centered_and_justified(|ui| {
+                                        ui.add_enabled_ui(!invalid, |ui| {
+                                            if ui.button("Exportar").clicked()
+                                                && let Some(path) =
+                                                    rfd::FileDialog::new().save_file()
+                                            {
+                                                self.set_keywords_from_modal();
+                                                if let Err(err) = self.export_keywords(path) {
+                                                    self.show_error_modal(err.to_string());
+                                                }
+                                            }
+                                        });
+                                    });
+                                });
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
+                                ui.add_enabled_ui(!invalid, |ui| {
+                                    if ui.button("Ok").clicked() && !invalid {
+                                        ui.close();
+                                    }
+                                })
+                            });
+                        });
+                        ui.add_space(10.0);
                     });
                 });
             });
             if modal.should_close() && !invalid {
                 self.config_modal_show = false;
-                match self.config_modal_keywords.clone().try_into() {
-                    Ok(keywords) => self.keywords = keywords,
-                    Err(err) => self.show_error_modal(format!(
-                        "Erro ao processar keyword {}: {}",
-                        err.0 + 1,
-                        err.1
-                    )),
-                }
+                self.set_keywords_from_modal();
             }
         }
         if let Some(text) = &self.msg_modal_text {
@@ -447,6 +450,16 @@ impl MyApp {
         self.stdout.push_str(text);
     }
 
+    fn set_keywords_from_modal(&mut self) {
+        match self.config_modal_keywords.clone().try_into() {
+            Ok(keywords) => self.keywords = keywords,
+            Err(err) => self.show_error_modal(format!(
+                "Erro ao processar keyword {}: {}",
+                err.0 + 1,
+                err.1
+            )),
+        }
+    }
     fn import_keywords(&mut self, path: PathBuf) -> anyhow::Result<()> {
         let keywords = KeywordMap::from_filename(path).map_err(|err| {
             anyhow!(
@@ -461,6 +474,17 @@ impl MyApp {
         })?;
         self.config_modal_keywords = keywords.str_values();
         self.keywords = keywords;
+        Ok(())
+    }
+    fn export_keywords(&self, path: PathBuf) -> anyhow::Result<()> {
+        let mut contents = String::new();
+        for (name, op) in self.keywords.str_values().iter() {
+            contents.push_str(&name);
+            contents.push(',');
+            contents.push_str(&op);
+            contents.push('\n');
+        }
+        fs::write(path, contents)?;
         Ok(())
     }
 
