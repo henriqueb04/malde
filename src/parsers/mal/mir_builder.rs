@@ -41,7 +41,7 @@ macro_rules! make_setters {
                     }
                 )+
                 $(
-                    pub fn [<$field _force>]<'a>(&mut self, value: $ty) {
+                    pub fn [<$field _force>](&mut self, value: $ty) {
                         self.$field = Some(value.clone());
                     }
                 )+

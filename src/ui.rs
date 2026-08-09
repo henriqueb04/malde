@@ -2,13 +2,13 @@ use std::{fmt::Display, fs, path::PathBuf};
 
 use anyhow::anyhow;
 use crossbeam_channel::{Sender, unbounded};
-use eframe::{egui, wgpu::naga::keywords};
+use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 use egui_inbox::UiInbox;
 use log::{debug, error};
 
 use crate::{
-    architecture::{datapath::DataRegisters, signals::CONTROL_SIGNAL_NAMES},
+    architecture::{datapath::DataRegisters, signals::ControlSignals},
     parsers::{
         asm::{Instruction, KeywordMap},
         mal::Microinstruction,
@@ -197,7 +197,7 @@ impl eframe::App for MyApp {
                                             .desired_width(200.0),
                                     );
                                     if let Some(err) =
-                                        KeywordMap::validate_pair(&pair.0.trim(), &pair.1.trim())
+                                        KeywordMap::validate_pair(pair.0.trim(), pair.1.trim())
                                             .err()
                                             .map(|err| err.to_string())
                                     {
@@ -239,10 +239,9 @@ impl eframe::App for MyApp {
                                     ui.centered_and_justified(|ui| {
                                         if ui.button("Importar").clicked()
                                             && let Some(path) = rfd::FileDialog::new().pick_file()
+                                            && let Err(err) = self.import_keywords(path)
                                         {
-                                            if let Err(err) = self.import_keywords(path) {
-                                                self.show_error_modal(err.to_string());
-                                            }
+                                            self.show_error_modal(err.to_string());
                                         }
                                     });
                                     ui.centered_and_justified(|ui| {
@@ -479,9 +478,9 @@ impl MyApp {
     fn export_keywords(&self, path: PathBuf) -> anyhow::Result<()> {
         let mut contents = String::new();
         for (name, op) in self.keywords.str_values().iter() {
-            contents.push_str(&name);
+            contents.push_str(name);
             contents.push(',');
-            contents.push_str(&op);
+            contents.push_str(op);
             contents.push('\n');
         }
         fs::write(path, contents)?;
@@ -630,7 +629,7 @@ impl MyApp {
                     body.rows(text_height, 14, |mut row| {
                         let row_index = row.index();
                         row.col(|ui| {
-                            ui.label(CONTROL_SIGNAL_NAMES[row_index]);
+                            ui.label(ControlSignals::NAMES[row_index]);
                         });
                         row.col(|ui| {
                             ui.label(mir_vals[row_index].to_string());

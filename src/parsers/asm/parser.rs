@@ -38,14 +38,14 @@ impl<'a> ASMParser<'a> {
         }
     }
 
-    pub fn parse(mut self) -> Result<ASMParserResult, ASMParsingError> {
+    pub fn parse(mut self) -> Result<ASMParserResult, Box<ASMParsingError>> {
         self.inner_parse()
             .map(|_| ASMParserResult {
                 data_mem: self.data_mem,
                 ins_mem: self.ins_mem,
                 instructions: self.ins_list,
             })
-            .map_err(|err| ASMParsingError::new(self.source_map, err))
+            .map_err(|err| Box::new(ASMParsingError::new(self.source_map, err)))
     }
 
     fn inner_parse(&mut self) -> Result<(), ParsingError> {

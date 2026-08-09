@@ -60,12 +60,6 @@ pub struct ControlSignals {
     pub syscall: bool,
 }
 
-pub const CONTROL_SIGNAL_NAMES_B: [&str; 7] = ["amux", "mbr", "mar", "rd", "wr", "enc", "syscall"];
-pub const CONTROL_SIGNAL_NAMES_U: [&str; 6] = ["cond", "alu", "sh", "c", "b", "a"];
-pub const CONTROL_SIGNAL_NAMES: [&str; 14] = [
-    "amux", "cond", "alu", "sh", "mbr", "mar", "rd", "wr", "enc", "c", "b", "a", "addr", "syscall",
-];
-
 impl ControlSignals {
     pub fn to_array(&self) -> [usize; 14] {
         [
@@ -86,8 +80,6 @@ impl ControlSignals {
         ]
     }
 
-    pub const NAMES_B: [&str; 7] = ["amux", "mbr", "mar", "rd", "wr", "enc", "syscall"];
-    pub const NAMES_U: [&str; 6] = ["cond", "alu", "sh", "c", "b", "a"];
     pub const NAMES: [&str; 14] = [
         "amux", "cond", "alu", "sh", "mbr", "mar", "rd", "wr", "enc", "c", "b", "a", "addr",
         "syscall",

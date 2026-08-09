@@ -16,13 +16,6 @@ impl SourceMap {
             content,
         })
     }
-    pub fn from_content(content: &str) -> Self {
-        SourceMap {
-            filepath: None,
-            content: content.to_string(),
-            line_indices: get_line_indices(content),
-        }
-    }
     pub fn get_span(&self, span: &Span) -> &str {
         self.content
             .get(span.start..(usize::min(self.content.len(), span.end)))
@@ -164,6 +157,16 @@ pub trait HasSpan {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    impl SourceMap {
+        pub fn from_content(content: &str) -> Self {
+            SourceMap {
+                filepath: None,
+                content: content.to_string(),
+                line_indices: get_line_indices(content),
+            }
+        }
+    }
 
     #[test]
     fn test_lines() {

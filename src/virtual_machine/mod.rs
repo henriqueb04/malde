@@ -27,7 +27,6 @@ pub use crate::architecture::memory::{DATA_SEGMENT_START, TEXT_SEGMENT_START};
 pub use crate::architecture::{datapath::Register, memory::MEMORY_SIZE};
 
 pub struct VM {
-    keywords: KeywordMap,
     state: VMState,
     execution_type: Option<VMExecutionType>,
     initial_memory: Option<(Vec<u16>, Vec<u16>)>,
@@ -50,7 +49,6 @@ impl VM {
         let memory = Arc::new(Mutex::new(Memory::new()));
         let micro_mem = Arc::new(Mutex::new(MicroMem::new(Vec::new())));
         VM {
-            keywords: KeywordMap::default(),
             memory: Arc::clone(&memory),
             micro_mem: Arc::clone(&micro_mem),
             cpu: Cpu::new(Arc::clone(&memory), Arc::clone(&micro_mem)),
@@ -68,11 +66,11 @@ impl VM {
         }
     }
 
-    pub fn assemble_mic<'a>(
+    pub fn assemble_mic(
         &mut self,
-        source_map: &'a SourceMap,
+        source_map: &SourceMap,
     ) -> Result<Vec<Microinstruction>, MALParsingError> {
-        let parser = MALParser::new(&source_map);
+        let parser = MALParser::new(source_map);
         let microinstructions = parser.parse()?;
         {
             let mut micro_mem = self.micro_mem.lock().unwrap();
@@ -89,11 +87,11 @@ impl VM {
         Ok(self.microinstructions.clone())
     }
 
-    pub fn assemble_mac<'a>(
+    pub fn assemble_mac(
         &mut self,
-        source_map: &'a SourceMap,
+        source_map: &SourceMap,
         keywords: KeywordMap,
-    ) -> Result<Vec<Instruction>, ASMParsingError> {
+    ) -> Result<Vec<Instruction>, Box<ASMParsingError>> {
         let parser = ASMParser::new(source_map, keywords, DATA_SEGMENT_START);
         let ASMParserResult {
             data_mem,

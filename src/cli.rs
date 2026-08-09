@@ -1,6 +1,7 @@
 use std::{
     collections::HashSet,
-    io::{self, Write}, path::PathBuf,
+    io::{self, Write},
+    path::PathBuf,
 };
 
 use anyhow::{Context, Error, Result, bail};

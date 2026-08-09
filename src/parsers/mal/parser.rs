@@ -39,7 +39,7 @@ impl<'a> MALParser<'a> {
         }
         for (pre_mic, lineno) in self.pre_mics.into_iter() {
             if let Some(addr_span) = pre_mic.get_addr_name() {
-                let addr_name = self.source_map.get_span(&addr_span);
+                let addr_name = self.source_map.get_span(addr_span);
                 if let Some(addr) = self.mappings.get(addr_name) {
                     self.mics.push(Microinstruction {
                         content: self.source_map.get_line(lineno).to_string(),

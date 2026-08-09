@@ -34,14 +34,12 @@ pub struct Token {
 }
 
 pub struct Tokenizer<'a> {
-    source_map: SourceMap,
     reader: SourceReader<'a>,
 }
 
 impl<'a> Tokenizer<'a> {
     pub fn new(source_map: &'a SourceMap) -> Self {
         Tokenizer {
-            source_map: source_map.clone(),
             reader: source_map.reader(),
         }
     }
@@ -89,22 +87,6 @@ impl<'a> Tokenizer<'a> {
             Some(span)
         } else {
             None
-        }
-    }
-
-    fn next_mapped(&mut self) -> Option<Result<Token, TokenizerError>> {
-        match self.next()? {
-            Ok(t) => {
-                if t.token_type == TokenType::Identifier {
-                    Some(Ok(Token {
-                        token_type: Tokenizer::map_identifier(self.source_map.get(&t)),
-                        span: t.span,
-                    }))
-                } else {
-                    Some(Ok(t))
-                }
-            }
-            Err(err) => Some(Err(err)),
         }
     }
 }
@@ -420,15 +402,37 @@ mod tests {
 
     use pretty_assertions::assert_eq;
 
+    impl Tokenizer<'_> {
+        fn next_mapped(&mut self, source_map: &SourceMap) -> Option<Result<Token, TokenizerError>> {
+            match self.next()? {
+                Ok(t) => {
+                    if t.token_type == TokenType::Identifier {
+                        Some(Ok(Token {
+                            token_type: Tokenizer::map_identifier(source_map.get(&t)),
+                            span: t.span,
+                        }))
+                    } else {
+                        Some(Ok(t))
+                    }
+                }
+                Err(err) => Some(Err(err)),
+            }
+        }
+    }
+
     struct Assert<'a> {
+        source_map: SourceMap,
         lexer: Tokenizer<'a>,
     }
-    impl Assert<'_> {
+    impl<'a> Assert<'a> {
+        pub fn new(lexer: Tokenizer<'a>, source_map: SourceMap) -> Self {
+            Assert { lexer, source_map }
+        }
         #[track_caller]
         fn next(&mut self, typ: TokenType, content: &str) {
-            let token = self.lexer.next_mapped().unwrap().unwrap();
+            let token = self.lexer.next_mapped(&self.source_map).unwrap().unwrap();
             assert_eq!(token.token_type, typ);
-            assert_eq!(self.lexer.source_map.get_span(&token.span), content);
+            assert_eq!(self.source_map.get(&token), content);
         }
     }
 
@@ -443,7 +447,7 @@ mod tests {
         ",
         );
         let lexer = Tokenizer::new(&source_map);
-        let mut assert = Assert { lexer };
+        let mut assert = Assert::new(lexer, source_map.clone());
         assert.next(TokenType::Newline, "\n");
         assert.next(TokenType::Register(Register::Alu), "alu");
         assert.next(TokenType::Register(Register::Pc), "pc");

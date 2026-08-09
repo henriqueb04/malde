@@ -120,7 +120,7 @@ impl KeywordMap {
                 && let Some(op) = contents.next().map(|s| s.trim())
             {
                 let (name, pair) =
-                    KeywordMap::validate_pair(name, op).map_err(|err| (Some(i), err.into()))?;
+                    KeywordMap::validate_pair(name, op).map_err(|err| (Some(i), err))?;
                 str_values.push((name.clone(), op.to_string()));
                 map.insert(name, pair);
             } else {

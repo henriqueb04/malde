@@ -191,27 +191,6 @@ impl Register {
         "pc", "ac", "sp", "ir", "tir", "0", "1", "(-1)", "amask", "smask", "a", "b", "c", "d", "e",
         "f",
     ];
-    pub fn get_index(register_name: &str) -> Option<u8> {
-        match register_name {
-            "pc" => Some(0),
-            "ac" => Some(1),
-            "sp" => Some(2),
-            "ir" => Some(3),
-            "tir" => Some(4),
-            "0" => Some(5),
-            "1" => Some(6),
-            "(-1)" => Some(7),
-            "amask" => Some(8),
-            "smask" => Some(9),
-            "a" => Some(10),
-            "b" => Some(11),
-            "c" => Some(12),
-            "d" => Some(13),
-            "e" => Some(14),
-            "f" => Some(15),
-            _ => None,
-        }
-    }
     pub const fn index(&self) -> Option<usize> {
         match self {
             Self::Pc => Some(0),
