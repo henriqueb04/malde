@@ -181,7 +181,7 @@ impl eframe::App for MyApp {
         if self.config_modal_show {
             let modal = egui::Modal::new(egui::Id::new("Config modal 1")).show(ui, |ui| {
                 ui.set_width(400.0);
-                ui.heading("Keywords (Assembly)");
+                ui.heading("Instruções (Assembly)");
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     let mut to_remove = None;
                     ui.vertical(|ui| {
@@ -450,7 +450,7 @@ impl MyApp {
     fn import_keywords(&mut self, path: PathBuf) -> anyhow::Result<()> {
         let keywords = KeywordMap::from_filename(path).map_err(|err| {
             anyhow!(
-                "Erro ao ler arquivo de keywords{}: {}",
+                "Erro ao ler arquivo de instruções{}: {}",
                 if let Some(l) = err.0 {
                     format!(" (linha {})", l + 1)
                 } else {

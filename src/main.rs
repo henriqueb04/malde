@@ -30,9 +30,9 @@ pub struct Args {
     #[arg(short = 'a', long, value_name = "ARQUIVO")]
     pub macroprogram: Option<PathBuf>,
 
-    /// Arquivo de keywords para serem usadas no Assembly. Usa o formato COMANDO,OPCODE para cada linha.
+    /// Arquivo de instruções para serem usadas no Assembly. O arquivo usa o formato NOME,OPCODE para cada linha.
     #[arg(short, long, value_name = "ARQUIVO")]
-    pub keywords: Option<PathBuf>,
+    pub instructions: Option<PathBuf>,
 
     /// Não exibe mesagens de informação quando o programa encerra, nem mostra mensagens de requisição de entrada (ex.: "Digite um número: ")
     #[arg(short, long)]
@@ -43,12 +43,12 @@ fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
     let keymaps = args
-        .keywords
+        .instructions
         .map(|p| KeywordMap::from_filename(p))
         .transpose()
         .map_err(|err| {
             anyhow!(
-                "Erro ao ler arquivo de keywords{}: {}",
+                "Erro ao ler arquivo de instruções{}: {}",
                 if let Some(l) = err.0 {
                     format!(" (linha {})", l + 1)
                 } else {
