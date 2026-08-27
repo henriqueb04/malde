@@ -8,6 +8,12 @@ Malde é um simulador da Micro-Assembly Language da arquitetura MIC-1 Andrew Tan
 - **Microprograma** (_MAL_): carregado na micro-memória da unidade de controle
 - **Macroprograma** (_ASM_): carregado na memória principal
 
+## Recursos
+- [Slides de Apresentação](assets/MALDE%20Apresentação.pdf)
+- [Microprograma padrão](malde.mal)
+- [Instruções padrão](instrucoes.txt)
+- [Exemplos](examples/)
+
 ## Instalação
 ### Página de [downloads](https://github.com/henriqueb04/malde/releases/latest)
 
@@ -18,7 +24,7 @@ No MacOS ou Linux, pode ser necessário dar a permissão de execução pro arqui
 ```bash
 cd ~/Downloads  # ou a pasta onde você colocou o arquivo
 chmod +x ./malde-*
-xattr -d com.apple.quarantine malde-macos-x86_64  # apenas no MacOS
+xattr -d com.apple.quarantine malde-macos-arm64  # apenas no MacOS
 ./malde-*  # executa o arquivo
 ```
 
