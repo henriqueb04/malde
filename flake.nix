@@ -32,7 +32,7 @@
           libGL
           libxkbcommon
           wayland
-          # libx11 libxcursor libxrandr libxi
+          libx11 libxcursor libxrandr libxi
         ];
         buildInputs = runtimeLibs ++ [ pkgs.zenity ];
       in
@@ -63,6 +63,7 @@
         devShells.default = pkgs.mkShell {
           nativeBuildInputs = [
             pkgs.gdb
+            pkgs.cargo-bloat
             (rustToolchain.override {
               extensions = [
                 "rust-analyzer"

@@ -19,6 +19,7 @@ pub fn execute(
     macroprogram: PathBuf,
     keywords: Option<KeywordMap>,
     no_info_print: bool,
+    err_on_instruction_write: bool,
 ) -> Result<()> {
     let mut vm = VM::new();
     let source_map1 = SourceMap::from_filepath(microprogram)
@@ -31,14 +32,16 @@ pub fn execute(
     let (_s_dummy_pause, r_dummy_pauser) = unbounded();
     let (s_validation, r_validation) = unbounded();
     let (s_request, r_request) = unbounded();
+    let (s_err, r_err) = unbounded();
     vm.set_info_print(!no_info_print);
     vm.set_on_print(Box::new(|msg| {
         print!("{}", msg);
         io::stdout().flush().expect("Erro ao mostrar saída");
     }));
+    vm.set_err_on_instruction_write(err_on_instruction_write);
 
     std::thread::spawn(move || {
-        vm.execute(
+        let r = vm.execute(
             VMExecutionType::Run,
             VMExecutionInfo {
                 r_pause: r_dummy_pauser,
@@ -56,10 +59,17 @@ pub fn execute(
                 breaks_mac: HashSet::new(),
             },
         );
+        if let Err((_, err)) = *r {
+            let _ = s_err.send(err);
+        }
     });
 
     loop {
         select_biased! {
+            recv(r_err) -> msg => match msg {
+                Ok(err) => return Err(err.into()),
+                Err(_) => break,
+            },
             recv(r_validation) -> msg => match msg {
                 Ok(Ok(())) => {},
                 Ok(Err(reason)) => return Err(Error::msg(reason)),

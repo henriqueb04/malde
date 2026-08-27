@@ -15,8 +15,9 @@ use crate::{
         source_map::SourceMap,
     },
     virtual_machine::{
-        DATA_SEGMENT_START, MEMORY_SIZE, Register, TEXT_SEGMENT_START, VM, VMExecutionInfo,
-        VMExecutionType, VMInputRequest, VMInputRequestType, VMInputResponse, VMResponse, VMState,
+        DATA_SEGMENT_START, MEMORY_SIZE, Register, TEXT_SEGMENT_START, VM, VMError,
+        VMExecutionInfo, VMExecutionType, VMInputRequest, VMInputRequestType, VMInputResponse,
+        VMResponse, VMState,
     },
 };
 
@@ -32,7 +33,7 @@ pub struct MyApp {
     input_modal_request: Option<VMInputRequest>,
     input_modal_text: String,
     input_model_error: String,
-    last_res: Box<VMResponse>,
+    last_res: VMResponse,
     instructions: Vec<Instruction>,
     microinstructions: Vec<Microinstruction>,
     keywords: KeywordMap,
@@ -42,6 +43,7 @@ pub struct MyApp {
     microprogram: Option<PathBuf>,
     config_modal_show: bool,
     config_modal_keywords: Vec<(String, String)>,
+    config_modal_err_on_instruction_write: bool,
     msg_modal_text: Option<String>,
     value_format: ValueFormatType,
     scroll_mpc: Option<usize>,
@@ -64,6 +66,13 @@ impl eframe::App for MyApp {
             match task.0 {
                 Ok(task) => match task {
                     VMTask::Execute(res) => {
+                        let res = match *res {
+                            Ok(res) => res,
+                            Err((res, err)) => {
+                                self.show_error_modal(err.to_string());
+                                res
+                            }
+                        };
                         self.scroll_mpc = Some(res.mpc);
                         self.selected = res.mpc;
                         self.last_res = res;
@@ -127,7 +136,7 @@ impl eframe::App for MyApp {
                         .num_columns(2)
                         .spacing([10.0, 4.0])
                         .show(ui, |ui| {
-                            if ui.button("🗁 Carregar arquivo Assembly").clicked()
+                            if ui.button("🗁 Escolher arquivo Assembly").clicked()
                                 && let Some(path) = rfd::FileDialog::new().pick_file()
                             {
                                 debug!("Macroprograma: {}", path.display());
@@ -140,7 +149,7 @@ impl eframe::App for MyApp {
                                     .unwrap_or_default(),
                             );
                             ui.end_row();
-                            if ui.button("🗁 Carregar arquivo MAL").clicked()
+                            if ui.button("🗁 Escolher arquivo MAL").clicked()
                                 && let Some(path) = rfd::FileDialog::new().pick_file()
                             {
                                 debug!("Microprograma: {}", path.display());
@@ -258,6 +267,13 @@ impl eframe::App for MyApp {
                                         });
                                     });
                                 });
+                            ui.checkbox(
+                                &mut self.config_modal_err_on_instruction_write,
+                                "Erro ao escrever em instrução",
+                            )
+                            .on_hover_text(
+                                "Emitir erro ao tentar escrever no segmento de instruções?",
+                            );
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
                                 ui.add_enabled_ui(!invalid, |ui| {
                                     if ui.button("Ok").clicked() && !invalid {
@@ -278,7 +294,7 @@ impl eframe::App for MyApp {
         if let Some(text) = &self.msg_modal_text {
             let modal = egui::Modal::new(egui::Id::new("Msg modal 1")).show(ui, |ui| {
                 ui.set_width(300.0);
-                ui.heading("Message");
+                ui.heading("Erro");
                 ui.monospace(text);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
                     if ui.button("Ok").clicked() {
@@ -300,6 +316,7 @@ impl MyApp {
         macroprogram: Option<PathBuf>,
         keywords: Option<KeywordMap>,
         no_info_print: bool,
+        err_on_instruction_write: bool,
     ) -> Self {
         let keywords = keywords.unwrap_or_default();
         let config_modal_keywords = keywords.str_values();
@@ -318,10 +335,12 @@ impl MyApp {
             macroprogram,
             keywords,
             config_modal_keywords,
+            config_modal_err_on_instruction_write: err_on_instruction_write,
             ..Default::default()
         }
     }
     fn assemble_micro(&mut self, path: PathBuf) {
+        self.reset_self();
         if let Some(mut vm) = self.vm.take() {
             self.task_inbox = UiInbox::new();
             let s_task = self.task_inbox.sender();
@@ -343,6 +362,7 @@ impl MyApp {
         }
     }
     fn assemble_macro(&mut self, path: PathBuf) {
+        self.reset_self();
         if let Some(mut vm) = self.vm.take() {
             self.task_inbox = UiInbox::new();
             let s_task = self.task_inbox.sender();
@@ -365,13 +385,18 @@ impl MyApp {
             });
         }
     }
+    fn reset_self(&mut self) {
+        if let Some(vm) = &self.vm {
+            self.memory = vm.memory().into();
+            self.selected = 0;
+            self.last_res = VMResponse::default();
+            self.last_res.state = vm.state().clone();
+        }
+    }
     fn reset_vm(&mut self) {
         if let Some(vm) = &mut self.vm {
             vm.reset();
-            self.memory = vm.memory().into();
-            self.selected = 0;
-            self.last_res.mpc = 0;
-            self.last_res.prev_mpc = 0;
+            self.reset_self();
         }
     }
 
@@ -401,6 +426,7 @@ impl MyApp {
             .map(|(i, _)| i)
             .collect();
         if let Some(mut vm) = self.vm.take() {
+            vm.set_err_on_instruction_write(self.config_modal_err_on_instruction_write);
             self.task_inbox = UiInbox::new();
             let s_task = self.task_inbox.sender();
             std::thread::spawn(move || {
@@ -423,7 +449,7 @@ impl MyApp {
                     },
                 );
                 s_task
-                    .send((Ok(VMTask::Execute(Box::new(res))), vm))
+                    .send((Ok(VMTask::Execute(res)), vm))
                     .expect("Resposta assícrona falhou");
             });
         }
@@ -435,6 +461,7 @@ impl MyApp {
     }
 
     fn send_input_response(&mut self, inp: VMInputResponse) {
+        self.print_to_stdout("\n");
         let request = self
             .input_modal_request
             .as_ref()
@@ -493,9 +520,35 @@ impl MyApp {
     fn format_value(&self, value: usize) -> String {
         let value = value as i16;
         match self.value_format {
-            ValueFormatType::Decimal => format!("{:05}", value),
+            ValueFormatType::Decimal => {
+                if value >= 0 {
+                    format!("{:05}", value)
+                } else {
+                    format!("{:06}", value)
+                }
+            }
             ValueFormatType::Hexadecimal => format!("0x{:04X}", value),
             ValueFormatType::Binary => format!("0b{:016b}", value),
+            ValueFormatType::Ascii => {
+                if value >= 0 && value < 256 {
+                    format!("{}", (value as u8 as char).escape_debug().to_string())
+                } else {
+                    format!("{:05}", value)
+                }
+            }
+        }
+    }
+    fn format_value_no_ascii(&self, value: usize) -> String {
+        let value2 = value as i16;
+        match self.value_format {
+            ValueFormatType::Ascii => {
+                if value2 >= 0 {
+                    format!("{:05}", value2)
+                } else {
+                    format!("{:06}", value2)
+                }
+            }
+            _ => self.format_value(value),
         }
     }
 
@@ -519,9 +572,13 @@ impl MyApp {
                         VMInputRequestType::Char => "Digite um caractere:",
                         VMInputRequestType::String => "Digite um texto:",
                     });
-                    ui.add(egui::TextEdit::singleline(&mut self.input_modal_text));
+                    let input_response =
+                        ui.add(egui::TextEdit::singleline(&mut self.input_modal_text));
                     ui.colored_label(egui::Color32::RED, self.input_model_error.clone());
-                    if ui.button("Enviar").clicked() {
+                    if ui.button("Enviar").clicked()
+                        || (input_response.lost_focus()
+                            && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                    {
                         match request_type {
                             VMInputRequestType::Int => {
                                 if let Ok(n) = self.input_modal_text.parse::<isize>() {
@@ -573,11 +630,13 @@ impl MyApp {
         if !self.microinstructions.is_empty() {
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
-                    if ui.button("🔃︎ Resetar").clicked() {
-                        self.reset_vm();
-                    }
+                    ui.add_enabled_ui(self.vm.is_some(), |ui| {
+                        if ui.button("🔃︎ Resetar").clicked() {
+                            self.reset_vm();
+                        }
+                    });
                     if self.vm.is_some() {
-                        ui.add_enabled_ui(state != VMState::Halted, |ui| {
+                        ui.add_enabled_ui(self.vm.is_some() && state != VMState::Halted, |ui| {
                             if ui.button("▶ Executar").clicked() {
                                 self.execute(VMExecutionType::Run);
                             }
@@ -589,7 +648,7 @@ impl MyApp {
                     }
                 });
                 ui.horizontal(|ui| {
-                    ui.add_enabled_ui(state != VMState::Halted, |ui| {
+                    ui.add_enabled_ui(self.vm.is_some() && state != VMState::Halted, |ui| {
                         if ui.button("⬇️ ︎Próxima microinstrução").clicked() {
                             self.execute(VMExecutionType::Microinstruction);
                         }
@@ -776,6 +835,13 @@ impl MyApp {
                     {
                         self.bottom_panel_tab = BottomPanelTab::Stdout;
                     }
+                    if self.bottom_panel_tab == BottomPanelTab::Stdout {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
+                            if ui.button("Limpar").clicked() {
+                                self.stdout.clear();
+                            }
+                        });
+                    }
                 });
                 ui.separator();
                 match self.bottom_panel_tab {
@@ -786,9 +852,12 @@ impl MyApp {
     }
 
     fn stdout_ui(&mut self, ui: &mut egui::Ui) {
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.monospace(&self.stdout);
-        });
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .stick_to_bottom(true)
+            .show(ui, |ui| {
+                ui.monospace(&self.stdout);
+            });
     }
 
     fn mem_table_ui(&mut self, ui: &mut egui::Ui) {
@@ -828,7 +897,7 @@ impl MyApp {
                     let row_index = self.mem_view_index + row.index() * n_cols;
                     row.col(|ui| {
                         if row_index < MEMORY_SIZE {
-                            ui.strong(self.format_value(row_index));
+                            ui.strong(self.format_value_no_ascii(row_index));
                         } else {
                             ui.strong("---");
                         }
@@ -889,6 +958,7 @@ impl MyApp {
                         "Hexadecimal",
                     );
                     ui.selectable_value(&mut self.value_format, ValueFormatType::Binary, "Binário");
+                    ui.selectable_value(&mut self.value_format, ValueFormatType::Ascii, "Ascii");
                 });
             egui::ComboBox::from_label("Memória")
                 .selected_text(self.last_mem_goto.to_string())
@@ -983,7 +1053,7 @@ impl MyApp {
                             .unwrap_or(("", ""));
                         let rich_text = egui::RichText::new(text).monospace();
                         let hover_add = if row_index == self.last_res.pc {
-                            Some("Próxima instrução")
+                            Some("Instrução a executar")
                         } else if row_index == self.last_res.prev_pc {
                             Some("Instrução executada")
                         } else {
@@ -1044,16 +1114,23 @@ impl MyApp {
                             .get(row_index)
                             .map(|v| v.content.as_str())
                             .unwrap_or("");
-                        if row_index == mpc {
-                            ui.label(egui::RichText::new(text).monospace().strong())
-                                .on_hover_text("Próxima microinstrução");
-                        } else if row_index == prev_mpc {
-                            ui.label(egui::RichText::new(text).monospace().strong())
-                                .on_hover_text("Microinstrução executada");
+                        if row_index == mpc || row_index == prev_mpc {
+                            ui.add(
+                                egui::Label::new(egui::RichText::new(text).monospace().strong())
+                                    .selectable(false),
+                            );
                         } else {
-                            ui.monospace(text);
+                            ui.add(
+                                egui::Label::new(egui::RichText::new(text).monospace())
+                                    .selectable(false),
+                            );
                         }
                     });
+                    if row_index == mpc {
+                        row.response().on_hover_text("Próxima microinstrução");
+                    } else if row_index == prev_mpc {
+                        row.response().on_hover_text("Microinstrução executada");
+                    }
                     if row.response().clicked() {
                         self.selected = row_index;
                     }
@@ -1083,6 +1160,7 @@ enum ValueFormatType {
     #[default]
     Hexadecimal,
     Binary,
+    Ascii,
 }
 
 impl Display for ValueFormatType {
@@ -1094,6 +1172,7 @@ impl Display for ValueFormatType {
                 ValueFormatType::Decimal => "Decimal",
                 ValueFormatType::Hexadecimal => "Hexadecimal",
                 ValueFormatType::Binary => "Binário",
+                ValueFormatType::Ascii => "Ascii",
             }
         )
     }
@@ -1105,6 +1184,7 @@ impl ValueFormatType {
             ValueFormatType::Decimal => 12,
             ValueFormatType::Hexadecimal => 12,
             ValueFormatType::Binary => 6,
+            ValueFormatType::Ascii => 12,
         }
     }
 }
@@ -1146,7 +1226,7 @@ struct UIInputInboxes {
 #[derive(Debug)]
 enum VMTask {
     // Usando Box pra reduzir o tamanho total do array
-    Execute(Box<VMResponse>),
+    Execute(Box<Result<VMResponse, (VMResponse, VMError)>>),
     AssembleMac(Vec<Instruction>),
     AssembleMic(Vec<Microinstruction>),
 }

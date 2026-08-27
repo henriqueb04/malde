@@ -60,6 +60,10 @@ impl Memory {
 
     fn request_wr(&mut self, mar: &u16, mbr: &mut u16, events: &mut EventHandler) {
         self.wr_clock_count += 1;
+        if *mar < DATA_SEGMENT_START as u16 {
+            events.instruction_write(*mar);
+            return;
+        }
         if self.wr_clock_count < 2 {
             return;
         }

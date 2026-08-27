@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::architecture::signals::{ALUSignals, ControlSignals};
 
-const MICROMEM_MAX_SIZE: usize = 1 << 10;
+pub const MICROMEM_MAX_SIZE: usize = 1 << 10;
 
 #[derive(Debug, Default)]
 pub struct MicroMem {

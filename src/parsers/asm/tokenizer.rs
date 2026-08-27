@@ -116,6 +116,7 @@ impl<'a> Tokenizer<'a> {
         let (len, c) = self.reader.next()?;
         let size = len;
         match c {
+            '0' => Some('\0'),
             't' => Some('\t'),
             'n' => Some('\n'),
             'r' => Some('\r'),
@@ -124,30 +125,46 @@ impl<'a> Tokenizer<'a> {
             'a' => Some('\x07'),
             's' => Some(' '),
             '\'' => Some('\''),
+            '\\' => Some('\\'),
             '"' => Some('"'),
             _ => None,
         }
         .map(|c| (size, c))
     }
-    fn read_string(&mut self) -> Option<(usize, String)> {
+    fn read_string(&mut self) -> Result<Option<(usize, String)>, TokenizerError> {
         let mut size = '"'.len_utf8();
         let mut content = String::new();
         while let Some((len, &c)) = self.reader.peek()
             && c != '"'
         {
+            if !c.is_ascii() {
+                return Err(TokenizerError {
+                    span: Span {
+                        start: self.reader.offset(),
+                        end: self.reader.offset() + len,
+                        line: self.reader.line(),
+                        col: self.reader.col(),
+                    },
+                    error_type: TokenizerErrorType::NotAsciiChar(c),
+                });
+            }
             self.reader.next();
             size += len;
             if c == '\\' {
-                let escaped = self.escape_char()?;
+                let Some(escaped) = self.escape_char() else {
+                    return Ok(None);
+                };
                 content.push(escaped.1);
                 size += escaped.0;
             } else {
                 content.push(c);
             }
         }
-        let (len, _) = self.reader.next()?;
+        let Some((len, _)) = self.reader.next() else {
+            return Ok(None);
+        };
         size += len;
-        Some((size, content))
+        Ok(Some((size, content)))
     }
 }
 
@@ -295,16 +312,18 @@ impl<'a> Iterator for Tokenizer<'a> {
                         line,
                         col,
                     };
-                    if let Some((_, content)) = s {
-                        Some(Token {
+                    match s {
+                        Err(err) => return Some(Err(err)),
+                        Ok(Some((_, content))) => Some(Token {
                             token_type: TokenType::String(content),
                             span,
-                        })
-                    } else {
-                        return Some(Err(TokenizerError {
-                            error_type: TokenizerErrorType::UnendedString,
-                            span,
-                        }));
+                        }),
+                        _ => {
+                            return Some(Err(TokenizerError {
+                                error_type: TokenizerErrorType::UnendedString,
+                                span,
+                            }));
+                        }
                     }
                 }
                 ';' => {

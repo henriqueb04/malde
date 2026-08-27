@@ -11,6 +11,7 @@ pub struct EventHandler {
     pub register_writes: HashMap<u8, WriteEvent>,
     pub memory_writes: HashMap<u16, WriteEvent>,
     pub instruction_reads: HashSet<u16>,
+    pub instruction_writes: HashSet<u16>,
     pub mar_conflicting: Option<WriteEvent>,
     pub mbr_conflicting: Option<WriteEvent>,
     pub mar_written: Option<WriteEvent>,
@@ -39,6 +40,9 @@ impl EventHandler {
         self.instruction_reads.insert(addr);
     }
 
+    pub fn instruction_write(&mut self, addr: u16) {
+        self.instruction_writes.insert(addr);
+    }
     pub fn mar_conflict(&mut self, before: u16, after: u16) {
         self.mar_conflicting = Some(WriteEvent { before, after })
     }
@@ -57,6 +61,7 @@ impl EventHandler {
         self.register_writes.clear();
         self.memory_writes.clear();
         self.instruction_reads.clear();
+        self.instruction_writes.clear();
         self.mar_conflicting = None;
         self.mbr_conflicting = None;
         self.mar_written = None;

@@ -139,6 +139,58 @@ impl Datapath {
 #[derive(Debug, Clone)]
 pub struct DataRegisters(pub u16, pub u16, pub RegisterBank);
 
+#[allow(dead_code)]
+impl DataRegisters {
+    pub fn pc(&self) -> u16 {
+        self.2[0]
+    }
+    pub fn ac(&self) -> u16 {
+        self.2[1]
+    }
+    pub fn sp(&self) -> u16 {
+        self.2[2]
+    }
+    pub fn ir(&self) -> u16 {
+        self.2[3]
+    }
+    pub fn tir(&self) -> u16 {
+        self.2[4]
+    }
+    pub fn zero(&self) -> u16 {
+        self.2[5]
+    }
+    pub fn one(&self) -> u16 {
+        self.2[6]
+    }
+    pub fn minus_one(&self) -> u16 {
+        self.2[7]
+    }
+    pub fn amask(&self) -> u16 {
+        self.2[8]
+    }
+    pub fn smask(&self) -> u16 {
+        self.2[9]
+    }
+    pub fn a(&self) -> u16 {
+        self.2[10]
+    }
+    pub fn b(&self) -> u16 {
+        self.2[11]
+    }
+    pub fn c(&self) -> u16 {
+        self.2[12]
+    }
+    pub fn d(&self) -> u16 {
+        self.2[13]
+    }
+    pub fn e(&self) -> u16 {
+        self.2[14]
+    }
+    pub fn f(&self) -> u16 {
+        self.2[15]
+    }
+}
+
 impl Default for DataRegisters {
     fn default() -> Self {
         DataRegisters(0, 0, Register::DEFAULT_VALUES)

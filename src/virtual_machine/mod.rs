@@ -11,7 +11,7 @@ use thiserror::Error;
 use crate::{
     architecture::{
         Cpu,
-        control::MicroMem,
+        control::{MICROMEM_MAX_SIZE, MicroMem},
         datapath::DataRegisters,
         events::EventHandler,
         memory::{Memory, MemoryArray},
@@ -41,6 +41,7 @@ pub struct VM {
     stdout: String,
     info_print: bool,
     on_print: Option<Box<dyn Fn(String) + Send>>,
+    err_on_instruction_write: bool,
     // cur_instruction: usize,
 }
 
@@ -63,15 +64,19 @@ impl VM {
             stdout: String::new(),
             info_print: true,
             on_print: None,
+            err_on_instruction_write: false,
         }
     }
 
     pub fn assemble_mic(
         &mut self,
         source_map: &SourceMap,
-    ) -> Result<Vec<Microinstruction>, MALParsingError> {
+    ) -> Result<Vec<Microinstruction>, VMError> {
         let parser = MALParser::new(source_map);
         let microinstructions = parser.parse()?;
+        if microinstructions.len() > MICROMEM_MAX_SIZE {
+            return Err(VMError::MicroMemOverflow(microinstructions.len()));
+        }
         {
             let mut micro_mem = self.micro_mem.lock().unwrap();
             *micro_mem = MicroMem::new(
@@ -91,13 +96,19 @@ impl VM {
         &mut self,
         source_map: &SourceMap,
         keywords: KeywordMap,
-    ) -> Result<Vec<Instruction>, Box<ASMParsingError>> {
+    ) -> Result<Vec<Instruction>, VMError> {
         let parser = ASMParser::new(source_map, keywords, DATA_SEGMENT_START);
         let ASMParserResult {
             data_mem,
             ins_mem,
             instructions,
         } = parser.parse()?;
+        if data_mem.len() > MEMORY_SIZE - DATA_SEGMENT_START {
+            return Err(VMError::DataSegmentOverflow(data_mem.len()));
+        }
+        if ins_mem.len() > DATA_SEGMENT_START {
+            return Err(VMError::InstructionSegmentOverflow(ins_mem.len()));
+        }
         self.set_initial_memory(ins_mem, data_mem);
         self.instructions = instructions;
         self.reset();
@@ -124,8 +135,8 @@ impl VM {
                     Ok(())
                 }
                 (VMInputResponse::String(s), VMInputRequestType::String) => {
-                    let addr = self.registers().2[Register::Ac.index().unwrap()] as usize;
-                    let max_size = self.registers().2[Register::A.index().unwrap()] as usize;
+                    let addr = self.registers().2[Register::A.index().unwrap()] as usize;
+                    let max_size = self.registers().2[Register::B.index().unwrap()] as usize;
                     let mut memory = self.memory.lock().unwrap();
                     let mut size = 0;
                     for (i, c) in s.as_bytes().iter().enumerate() {
@@ -136,6 +147,10 @@ impl VM {
                         memory.set_addr(addr + i, *c as u16, &mut self.events);
                     }
                     memory.set_addr(addr + usize::min(size, max_size - 1), 0, &mut self.events);
+                    self.cpu.set_register(
+                        Register::Ac.index().unwrap(),
+                        usize::min(size + 1, max_size) as u16,
+                    );
                     Ok(())
                 }
                 _ => Err(VMInputError::WrongType),
@@ -153,6 +168,9 @@ impl VM {
         &self.state
     }
 
+    pub fn set_err_on_instruction_write(&mut self, err_on_instruction_write: bool) {
+        self.err_on_instruction_write = err_on_instruction_write;
+    }
     pub fn set_info_print(&mut self, info_print: bool) {
         self.info_print = info_print;
     }
@@ -175,7 +193,6 @@ impl VM {
             let mut memory = self.memory.lock().unwrap();
             memory.clear();
             memory.load(TEXT_SEGMENT_START, initial_instructions);
-            memory.load(DATA_SEGMENT_START - 1, &[0]); // HALT de segurança
             memory.load(DATA_SEGMENT_START, initial_data);
         }
     }
@@ -189,35 +206,50 @@ impl VM {
         &mut self,
         execution_type: VMExecutionType,
         execution_info: VMExecutionInfo,
-    ) -> VMResponse {
+    ) -> Box<Result<VMResponse, (VMResponse, VMError)>> {
         self.events.clear();
         self.execution_type = Some(execution_type.clone());
-        let r = match &self.state {
+        let (res, r) = match &self.state {
             VMState::Active => match execution_type {
                 VMExecutionType::Run => self.run_all(&execution_info),
                 VMExecutionType::Macroinstruction => self.advance_macroinstruction(&execution_info),
                 VMExecutionType::Microinstruction => self.advance_microinstruction(&execution_info),
             },
-            _ => (0, 0),
+            _ => ((0, 0), Ok(())),
         };
         if discriminant(&self.state) != discriminant(&VMState::Waiting(VMInputRequestType::Int)) {
             self.execution_type = None;
         }
-        VMResponse {
-            mpc: r.0,
-            prev_mpc: r.1,
+        if r.is_err() {
+            self.state = VMState::Halted;
+        }
+        let res = VMResponse {
+            mpc: res.0,
+            prev_mpc: res.1,
             pc: self.pc,
             prev_pc: self.prev_pc,
             events: self.events.clone(),
             state: self.state.clone(),
             registers: self.registers(),
-        }
+        };
+        Box::new(if let Err(err) = r {
+            Err((res, err))
+        } else {
+            Ok(res)
+        })
     }
-    fn run_all(&mut self, execution_info: &VMExecutionInfo) -> (usize, usize) {
+    fn run_all(
+        &mut self,
+        execution_info: &VMExecutionInfo,
+    ) -> ((usize, usize), Result<(), VMError>) {
         let mut res = (0, 0);
+        let mut r;
         while self.state == VMState::Active {
             self.events.instruction_reads.clear();
-            res = self.advance_microinstruction(execution_info);
+            (res, r) = self.advance_microinstruction(execution_info);
+            if let Err(err) = r {
+                return (res, Err(err));
+            }
             if let Some(pc) = self.events.instruction_reads.iter().next()
                 && execution_info.breaks_mac.contains(&(*pc as usize))
             {
@@ -230,12 +262,26 @@ impl VM {
                 break;
             }
         }
-        res
+        (res, Ok(()))
     }
-    fn advance_microinstruction(&mut self, execution_info: &VMExecutionInfo) -> (usize, usize) {
+    fn advance_microinstruction(
+        &mut self,
+        execution_info: &VMExecutionInfo,
+    ) -> ((usize, usize), Result<(), VMError>) {
         match &self.state {
             VMState::Active => {
                 let (mpc, prev_mpc) = self.cpu.advance_microinstruction(&mut self.events);
+                if self.events.mar_conflicting.is_some() {
+                    return ((mpc, prev_mpc), Err(VMError::MarChanged));
+                }
+                if self.events.mbr_conflicting.is_some() {
+                    return ((mpc, prev_mpc), Err(VMError::MbrChanged));
+                }
+                if self.err_on_instruction_write
+                    && let Some(addr) = self.events.instruction_writes.iter().next()
+                {
+                    return ((mpc, prev_mpc), Err(VMError::InstructionWrite(*addr)));
+                }
                 if self.microinstructions[prev_mpc].mir.syscall
                     && let Some(input_request) = self.execute_syscall()
                 {
@@ -247,7 +293,7 @@ impl VM {
                     loop {
                         let Ok(input) = input_r.recv() else {
                             self.state = VMState::Halted;
-                            return (0, 0);
+                            return (Default::default(), Ok(()));
                         };
                         match self.handle_input(input).map_err(|err| err.to_string()) {
                             Ok(..) => {
@@ -258,19 +304,26 @@ impl VM {
                         }
                     }
                 };
-                if let Some(read_event) = self.events.instruction_reads.iter().next() {
+                if !self.events.instruction_reads.is_empty() {
                     self.prev_pc = self.pc;
-                    self.pc = *read_event as usize;
+                    self.pc = self.cpu.get_registers().pc() as usize;
                 }
-                (mpc, prev_mpc)
+                ((mpc, prev_mpc), Ok(()))
             }
-            _ => Default::default(),
+            _ => (Default::default(), Ok(())),
         }
     }
-    fn advance_macroinstruction(&mut self, execution_info: &VMExecutionInfo) -> (usize, usize) {
+    fn advance_macroinstruction(
+        &mut self,
+        execution_info: &VMExecutionInfo,
+    ) -> ((usize, usize), Result<(), VMError>) {
         let mut res = (0, 0);
+        let mut r;
         while self.events.instruction_reads.is_empty() && self.state == VMState::Active {
-            res = self.advance_microinstruction(execution_info);
+            (res, r) = self.advance_microinstruction(execution_info);
+            if let Err(err) = r {
+                return (res, Err(err));
+            }
             if execution_info.breaks_mic.contains(&res.0) {
                 break;
             }
@@ -278,10 +331,12 @@ impl VM {
                 break;
             }
         }
-        res
+        (res, Ok(()))
     }
 
     pub fn reset(&mut self) {
+        self.pc = 0;
+        self.prev_pc = 0;
         self.events.clear();
         self.reset_memory();
         self.cpu.reset();
@@ -299,25 +354,25 @@ impl VM {
     }
 
     fn execute_syscall(&mut self) -> Option<VMInputRequestType> {
-        let DataRegisters(_, _, registers) = self.cpu.get_registers();
-        match registers[Register::E.index().unwrap()] {
+        let registers = self.cpu.get_registers();
+        match registers.ac() {
             Syscalls::PRINT_INT => {
-                let s = format!("{}", registers[Register::Ac.index().unwrap()] as i16);
+                let s = format!("{}", registers.a() as i16);
                 self.print_to_stdout(&s);
                 None
             }
             Syscalls::PRINT_CHAR => {
-                let s = format!("{}", registers[Register::Ac.index().unwrap()] as u8 as char);
+                let s = format!("{}", registers.a() as u8 as char);
                 self.print_to_stdout(&s);
                 None
             }
             Syscalls::PRINT_INT_HEX => {
-                let s = format!("{:04X}", registers[Register::Ac.index().unwrap()]);
+                let s = format!("{:04X}", registers.a());
                 self.print_to_stdout(&s);
                 None
             }
             Syscalls::PRINT_STRING => {
-                let start = registers[Register::Ac.index().unwrap()];
+                let start = registers.a();
                 let s = {
                     let memory = self.memory.lock().unwrap();
                     let m = memory.get_ref();
@@ -333,12 +388,12 @@ impl VM {
                 None
             }
             Syscalls::PRINT_INT_BINARY => {
-                let s = format!("{:016b}", registers[Register::Ac.index().unwrap()]);
+                let s = format!("{:016b}", registers.a());
                 self.print_to_stdout(&s);
                 None
             }
             Syscalls::PRINT_INT_UNSIGNED => {
-                let s = format!("{}", registers[Register::Ac.index().unwrap()]);
+                let s = format!("{}", registers.a());
                 self.print_to_stdout(&s);
                 None
             }
@@ -455,4 +510,27 @@ pub enum VMInputError {
     WrongType,
     #[error("Input inesperado")]
     Unexpected,
+}
+
+#[derive(Debug, Error)]
+#[error(transparent)]
+pub enum VMError {
+    #[error(transparent)]
+    ASMParsingError(#[from] Box<ASMParsingError>),
+    #[error(transparent)]
+    MALParsingError(#[from] Box<MALParsingError>),
+    #[error("MAR mudou durante operação da memória. Risco de corrupção de memória.")]
+    MarChanged,
+    #[error("MBR mudou durante operação de escrita. Risco de corrupção de memória.")]
+    MbrChanged,
+    #[error(
+        "Tentativa de escrita no segmento de instrução, que é somente leitura durante execução."
+    )]
+    InstructionWrite(u16),
+    #[error("Quantidade de instruções excede a capacidade do segmento de instruções.")]
+    InstructionSegmentOverflow(usize),
+    #[error("Quantidade de instruções excede a capacidade do segmento de dados.")]
+    DataSegmentOverflow(usize),
+    #[error("Quantidade de microinstruções excede a capacidade da memória de microinstrução.")]
+    MicroMemOverflow(usize),
 }

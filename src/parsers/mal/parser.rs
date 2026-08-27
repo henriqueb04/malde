@@ -30,7 +30,7 @@ impl<'a> MALParser<'a> {
         }
     }
 
-    pub fn parse(mut self) -> Result<Vec<Microinstruction>, MALParsingError> {
+    pub fn parse(mut self) -> Result<Vec<Microinstruction>, Box<MALParsingError>> {
         self.burn_tokens(TokenType::Newline)
             .map_err(|err| MALParsingError::new(self.source_map, err))?;
         while self.lexer.peek().is_some() {
@@ -46,13 +46,13 @@ impl<'a> MALParser<'a> {
                         mir: pre_mic.build(*addr as u16),
                     });
                 } else {
-                    return Err(MALParsingError::new(
+                    return Err(Box::new(MALParsingError::new(
                         self.source_map,
                         ParsingError {
                             span: addr_span.clone(),
                             error_type: ParsingErrorType::UnrecognizedLabel,
                         },
-                    ));
+                    )));
                 }
             } else {
                 self.mics.push(Microinstruction {
@@ -128,10 +128,16 @@ impl<'a> MALParser<'a> {
     fn read_goto(
         &mut self,
         mir: &mut ControlSignalsBuilder,
-        first: Token,
+        mut first: Token,
     ) -> Result<(), ParsingError> {
         if first.token_type == TokenType::Then {
-            self.lexer.next();
+            first = self.expect(TokenType::Goto)?;
+        }
+        if first.token_type != TokenType::Goto {
+            return Err(ParsingError {
+                span: first.span.clone(),
+                error_type: ParsingErrorType::UnexpectedToken("goto".to_string(), first),
+            });
         }
         let id = self.next_unmapped("rótulo")?;
         if id.token_type != TokenType::Identifier {

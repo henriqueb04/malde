@@ -35,8 +35,12 @@ pub struct Args {
     pub instructions: Option<PathBuf>,
 
     /// Não exibe mesagens de informação quando o programa encerra, nem mostra mensagens de requisição de entrada (ex.: "Digite um número: ")
-    #[arg(short, long)]
+    #[arg(long)]
     pub no_info_print: bool,
+
+    /// Não emite erro ao tentar escrever no segmento de instruções durante execução
+    #[arg(long)]
+    pub no_err_on_instruction_write: bool,
 }
 
 fn main() -> Result<()> {
@@ -65,12 +69,25 @@ fn main() -> Result<()> {
         let mac = args
             .macroprogram
             .context("É necessário prover um arquivo Assembly usando --macroprogram")?;
-        cli::execute(mic, mac, keymaps, args.no_info_print)?;
+        cli::execute(
+            mic,
+            mac,
+            keymaps,
+            args.no_info_print,
+            !args.no_err_on_instruction_write,
+        )?;
         Ok(())
     } else {
         // UI execution
+        let mut viewport = egui::ViewportBuilder::default().with_inner_size([1408.0, 1056.0]);
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            viewport = viewport.with_icon(load_icon());
+        }
+
         let options = eframe::NativeOptions {
-            viewport: egui::ViewportBuilder::default().with_inner_size([640.0, 240.0]),
+            viewport,
             ..Default::default()
         };
         eframe::run_native(
@@ -82,9 +99,23 @@ fn main() -> Result<()> {
                     args.macroprogram,
                     keymaps,
                     args.no_info_print,
+                    !args.no_err_on_instruction_write,
                 )))
             }),
         )
         .with_context(|| "Erro ao iniciar interface")
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn load_icon() -> egui::IconData {
+    let image = image::load_from_memory(include_bytes!("../assets/logo.png"))
+        .expect("Failed to load icon path")
+        .into_rgba8();
+    let (width, height) = image.dimensions();
+    egui::IconData {
+        rgba: image.into_raw(),
+        width,
+        height,
     }
 }

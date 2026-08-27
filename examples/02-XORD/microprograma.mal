@@ -1,0 +1,162 @@
+# Esse microprograma substitui a operação ADDL por XORD
+# A operação XORD aplica a operação xor bit a bit em ac e o valor do endereço de memória especificado
+
+FETCH0: mar := pc; rd;
+FETCH1: pc := pc + 1; rd;
+
+DECOD0: alu := mbr; if z then goto HALT0;
+
+DECOD1: ir := mbr; if n then goto DECOD9;                       # x---------------
+DECOD2: tir := lshift (ir + ir); if n then goto DECOD6;         # 0x--------------
+DECOD3: tir := lshift (tir); if n then goto DECOD5;             # 00x-------------
+DECOD4: alu := tir; if n then goto STOD0;                       # 000x------------
+
+LODD0: mar := ir; rd;                                           # 0000------------
+LODD1: rd;
+LODD2: ac := mbr; goto FETCH0;
+
+STOD0: mar := ir; mbr := ac; wr;                                # 0001------------
+STOD1: wr; goto FETCH0;
+
+DECOD5: alu := tir; if n then goto SUBD0;                       # 001x------------
+
+ADDD0: mar := ir; rd;                                           # 0010------------
+ADDD1: rd;
+ADDD2: ac := mbr + ac; goto FETCH0;
+
+SUBD0: mar := ir; rd;                                           # 0011------------
+SUBD1: ac := ac + 1; rd;
+SUBD2: f := inv (mbr);
+SUBD3: ac := ac + f; goto FETCH0;
+
+DECOD6: tir := lshift (tir); if n then goto DECOD8;             # 01x-------------
+DECOD7: alu := tir; if n then goto JZER0;                       # 010x------------
+
+JPOS0: alu := ac; if n then goto FETCH0;                        # 0100------------
+JPOS1: pc := band (ir, amask); goto FETCH0;
+
+JZER0: alu := ac; if z then goto JPOS1;                         # 0101------------
+JZER1: goto FETCH0;
+
+DECOD8: alu := tir; if n then goto LOCO0;                       # 011x------------
+
+JUMP0: pc := band (ir, amask); goto FETCH0;                     # 0110------------
+
+LOCO0: ac := band (ir, amask); goto FETCH0;                     # 0111------------
+
+DECOD9: tir := lshift (ir + ir); if n then goto DECOD13;        # 1x--------------
+DECOD10: tir := lshift (tir); if n then goto DECOD12;           # 10x-------------
+DECOD11: alu := tir; if n then goto STOL0;                      # 100x------------
+
+LODL0: f := ir + sp;                                            # 1000------------
+LODL1: mar := f; rd; goto LODD1;
+
+STOL0: f := ir + sp;                                            # 1001------------
+STOL1: mar := f; mbr := ac; wr; goto STOD1;
+
+DECOD12: alu := tir; if n then goto SUBL0;                      # 101x------------
+
+################################
+# Mudanças começam aqui.........
+
+XORD0: mar := ir; rd;                                           # 1010------------
+XORD1: rd;
+XORD2: c := band (ac, mbr);       # C = A AND B
+XORD3: c := inv (c);              # C = NAND (A, B)
+XORD4: d := inv (ac);             # D = NOT A
+XORD5: e := inv (mbr);            # E = NOT B
+XORD6: d := band (d, e);          # D = (NOT A) AND (NOT B)
+XORD7: d := inv (d);              # D = A OR B
+XORD8: ac := band (c, d); goto FETCH0;
+
+# Mudanças terminam aqui........
+################################
+
+SUBL0: f := ir + sp;                                            # 1010------------
+SUBL1: mar := f; rd; goto SUBD1;
+
+DECOD13: tir := lshift (tir); if n then goto DECOD15;           # 11x-------------
+DECOD14: alu := tir; if n then goto JNZE0;                      # 110x------------
+
+JNEG0: alu := ac; if n then goto JPOS1;                         # 1100------------
+JNEG1: goto FETCH0;
+
+JNZE0: alu := ac; if z then goto FETCH0;                        # 1101------------
+JNZE1: pc := band (ir, amask); then goto FETCH0;
+
+DECOD15: tir := lshift (tir); if n then goto DECOD16;           # 111x------------
+
+CALL0: sp := sp + (-1);                                         # 1110------------
+CALL1: mar := sp; mbr := pc; wr;
+CALL2: pc := band (ir, amask); wr; goto FETCH0;
+
+DECOD16: tir := lshift (tir); if n then goto DECOD20;           # 1111x-----------
+DECOD17: tir := lshift (tir); if n then goto DECOD19;           # 11110x----------
+DECOD18: alu := tir; if n then goto POPI0;                      # 111100x---------
+
+PSHI0: mar := ac; rd;                                           # 1111000---------
+PSHI1: sp := sp + (-1); rd;
+PSHI2: mar := sp; wr; goto STOD1;
+
+POPI0: mar := sp; sp := sp + 1; rd;                             # 1111001---------
+POPI1: rd;
+POPI2: mar := ac; wr; goto STOD1;
+
+DECOD19: alu := tir; if n then goto POP0;                       # 111101x---------
+
+PUSH0: sp := sp + (-1);                                         # 1111010---------
+PUSH1: mar := sp; mbr := ac; wr; goto STOD1;
+
+POP0: mar := sp; sp := sp + 1; rd;                              # 1111011---------
+POP1: rd;
+POP2: ac := mbr; goto FETCH0;
+
+DECOD20: tir := lshift (tir); if n then goto DECOD22;           # 11111x----------
+DECOD21: alu := tir; if n then goto SWAP0;                      # 111110x---------
+
+RETN0: mar := sp; sp := sp + 1; rd;                             # 1111100---------
+RETN1: rd;
+RETN2: pc := mbr; goto FETCH0;
+
+SWAP0: f := sp;                                                 # 1111101---------
+SWAP1: sp := ac;
+SWAP2: ac := f; goto FETCH0;
+
+DECOD22: tir := lshift (tir); if n then goto DECOD23;           # 111111x---------
+
+INSP0: f := band (ir, smask);                                   # 1111110---------
+INSP1: sp := sp + f; goto FETCH0;
+
+DECOD23: tir := lshift (tir); if n then goto DECOD24;           # 1111111x--------
+
+DESP0: f := band (ir, smask);                                   # 11111110--------
+DESP1: f := inv (f);
+DESP2: f := f + 1; goto INSP1;
+
+DECOD24: tir := lshift (tir); if n then goto DECOD28;           # 11111111x-------
+DECOD25: tir := lshift (tir); if n then goto DECOD27;           # 111111110x------
+DECOD26: tir := lshift (tir); if n then goto SWAPB0;            # 1111111100x-----
+
+SWAPA0: f := a;                                                 # 11111111000-----
+SWAPA1: a := ac; goto SWAP2;
+
+SWAPB0: f := b;                                                 # 11111111001-----
+SWAPB1: b := ac; goto SWAP2;
+
+DECOD27: alu := tir; if n then goto SWAPD0;                     # 1111111101x-----
+
+SWAPC0: f := c;                                                 # 11111111010-----
+SWAPC1: c := ac; goto SWAP2;
+
+SWAPD0: f := d;                                                 # 11111111011-----
+SWAPD1: d := ac; goto SWAP2;
+
+DECOD28: alu := tir; if n then goto ECALL0;                     # 111111111x------
+
+SWAPE0: f := e;                                                 # 1111111110------
+SWAPE1: e := ac; goto SWAP2;
+
+ECALL0: syscall; goto FETCH0;                                   # 1111111111------
+
+HALT0: ac := lshift (1 + 1);                                     # 0000000000000000
+HALT1: ac := lshift (ac + 1); syscall; goto FETCH0;
