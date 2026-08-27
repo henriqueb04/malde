@@ -190,8 +190,8 @@ impl eframe::App for MyApp {
         if self.config_modal_show {
             let modal = egui::Modal::new(egui::Id::new("Config modal 1")).show(ui, |ui| {
                 ui.set_width(400.0);
-                ui.heading("Instruções (Assembly)");
                 egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.heading("Instruções (Assembly)");
                     let mut to_remove = None;
                     ui.horizontal(|ui| {
                         ui.vertical(|ui| {
@@ -267,6 +267,7 @@ impl eframe::App for MyApp {
                                         });
                                     });
                                 });
+                            ui.heading("Ajustes");
                             ui.checkbox(
                                 &mut self.config_modal_err_on_instruction_write,
                                 "Erro ao escrever em instrução",
