@@ -47,6 +47,11 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: mv target/release/${{ matrix.artifact_name }} ${{ matrix.asset_name }}
 
+      - name: Install cargo-about
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about
+
       - name: Upload to Release
         uses: softprops/action-gh-release@v3
         with:
