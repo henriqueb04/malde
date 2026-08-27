@@ -22,6 +22,16 @@ xattr -d com.apple.quarantine malde-macos-x86_64  # apenas no MacOS
 ./malde-*  # executa o arquivo
 ```
 
+## Tutorial
+1. Botões **Escolher arquivo Assembly** e **Escolher arquivo MAL**: Escolhem o caminho para o arquivo de macroprograma e microprograma, respectivamente.
+2. Botão _Configurações_ (⚙): Abre a tela de customização de instruções.
+3. Botões **Montar microprograma** e **Montar macroprograma**: Leem os arquivos nos caminhos selecionados anteriormente e carregam os programas em suas respectivas memórias.
+4. Botão **Executar**/**Pausar**: Executa/pausa todo o macro/microprograma.
+5. Botão **Próxima microinstrução**: Executa uma única microinstrução.
+6. Botão **Próxima macroinstrução**: Executa todas as microinstruções até que a próxima macroinstrução seja lida da memória.
+7. Botões **_Breakpoint_** (checkboxes do lado de cada macro/microinstrução): Quando selecionados, pausam a execução logo antes do programa executar aquela macro/microinstrução.
+8. Botão **Resetar**: Reinicia o macro/microprograma.
+
 ## Arquitetura MIC-1
 
 ### Memória Principal
