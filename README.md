@@ -11,7 +11,16 @@ Malde é um simulador da Micro-Assembly Language da arquitetura MIC-1 Andrew Tan
 ## Instalação
 ### Página de [downloads](https://github.com/henriqueb04/malde/releases/latest)
 
-Se estiver usando Linux, antes de executar é preciso ter as seguintes dependências instaladas: `libGL`, `libxkbcommon`, `wayland`, `zenity`
+Se estiver usando Linux, antes de executar é preciso ter as seguintes dependências instaladas: `libGL`, `libxkbcommon`, `wayland`, `zenity`. (Se seu gerenciador de janelas usar X11, pode ser necessário usar `libx11`, `libxcursor`, `libxrandr` e `libxi` em vez de `wayland`)
+
+No MacOS ou Linux, pode ser necessário dar a permissão de execução pro arquivo baixado:
+
+```bash
+cd ~/Downloads  # ou a pasta onde você colocou o arquivo
+chmod +x ./malde-*
+xattr -d com.apple.quarantine malde-macos-x86_64  # apenas no MacOS
+./malde-*  # executa o arquivo
+```
 
 ## Arquitetura MIC-1
 
