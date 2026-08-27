@@ -23,7 +23,7 @@ jobs:
             asset_name: malde-windows-x86_64.exe
           - os: macos-latest
             artifact_name: malde
-            asset_name: malde-macos-x86_64
+            asset_name: malde-macos-arm64
 
     steps:
       - name: Checkout code
