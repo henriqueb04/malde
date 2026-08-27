@@ -16,7 +16,7 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            artifact_name: malde-linux
+            artifact_name: malde
             asset_name: malde-linux-x86_64
           - os: windows-latest
             artifact_name: malde.exe
