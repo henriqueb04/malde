@@ -113,7 +113,7 @@ Essas instruções são incluídas por padrão além das especificadas anteriorm
 | `SWAPB` | `1111111100100000` | `TMP := AC; AC := B; B := TMP` |
 | `SWAPC` | `1111111101000000` | `TMP := AC; AC := C; C := TMP` |
 | `SWAPD` | `1111111101100000` | `TMP := AC; AC := D; D := TMP` |
-| `SWAPD` | `1111111110000000` | `TMP := AC; AC := E; E := TMP` |
+| `SWAPE` | `1111111110000000` | `TMP := AC; AC := E; E := TMP` |
 | `ECALL` | `1111111111000000` | Chamada de sistema (_syscall_) |
 | `HALT` | `0000000000000000` | Encerra programa |
 
