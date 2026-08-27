@@ -1,8 +1,8 @@
 [package]
 name = "malde"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
-licence = "MIT"
+license = "MIT"
 
 [dependencies]
 anyhow = "1.0.104"
@@ -15,7 +15,6 @@ env_logger = "0.11.10"
 image = "0.25.10"
 log = "0.4.33"
 pastey = "0.2.3"
-regex = "1.12.3"
 rfd = "0.17.2"
 thiserror = "2.0.18"
 

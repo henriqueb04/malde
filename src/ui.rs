@@ -21,6 +21,8 @@ use crate::{
     },
 };
 
+const LICENSES_TEXT: &str = include_str!(concat!(env!("OUT_DIR"), "/licenses.txt"));
+
 #[derive(Default)]
 pub struct MyApp {
     vm: Option<VM>,
@@ -44,6 +46,7 @@ pub struct MyApp {
     config_modal_show: bool,
     config_modal_keywords: Vec<(String, String)>,
     config_modal_err_on_instruction_write: bool,
+    credits_modal_show: bool,
     msg_modal_text: Option<String>,
     value_format: ValueFormatType,
     scroll_mpc: Option<usize>,
@@ -275,6 +278,9 @@ impl eframe::App for MyApp {
                             .on_hover_text(
                                 "Emitir erro ao tentar escrever no segmento de instruções?",
                             );
+                            if ui.link("Créditos").clicked() {
+                                self.credits_modal_show = true;
+                            }
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
                                 ui.add_enabled_ui(!invalid, |ui| {
                                     if ui.button("Ok").clicked() && !invalid {
@@ -308,6 +314,20 @@ impl eframe::App for MyApp {
             }
         }
         self.input_request_ui(ui);
+        if self.credits_modal_show {
+            let modal = egui::Modal::new(egui::Id::new("Credits modal")).show(ui, |ui| {
+                ui.set_width(600.0);
+                ui.heading("Créditos");
+                ui.separator();
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.label(include_str!("../LICENSE"));
+                    ui.label(LICENSES_TEXT);
+                })
+            });
+            if modal.should_close() {
+                self.credits_modal_show = false;
+            }
+        }
     }
 }
 

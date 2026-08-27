@@ -33,6 +33,7 @@
           libxkbcommon
           wayland
           libx11 libxcursor libxrandr libxi
+          cargo-about
         ];
         buildInputs = runtimeLibs ++ [ pkgs.zenity ];
       in
@@ -64,6 +65,7 @@
           nativeBuildInputs = [
             pkgs.gdb
             pkgs.cargo-bloat
+            pkgs.cargo-license
             (rustToolchain.override {
               extensions = [
                 "rust-analyzer"
